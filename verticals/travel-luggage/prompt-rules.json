@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "instructions": [
+    "Use only approved Product Truth facts.",
+    "Copy locked values exactly, including punctuation, units, prices, codes, phone numbers, and URLs.",
+    "Never invent customer experiences or testimonials.",
+    "Do not claim universal airline carry-on acceptance without an exact approved claim.",
+    "Keep exact product text out of Seedance prompts; add it during deterministic composition."
+  ]
+}

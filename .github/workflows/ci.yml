@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  javascript:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun run openapi:check
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun run test
+      - run: bun run build
+
+  go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.7
+          cache-dependency-path: services/api/go.sum
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18.4-alpine
+        env:
+          POSTGRES_USER: studio
+          POSTGRES_PASSWORD: studio
+          POSTGRES_DB: studio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U studio -d studio"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ariga/setup-atlas@v0
+        with:
+          version: 1.2.0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.7
+          cache-dependency-path: services/api/go.sum
+      - run: atlas migrate validate --dir file://database/migrations
+      - run: atlas migrate apply --url 'postgres://studio:studio@localhost:5432/studio?sslmode=disable' --dir file://database/migrations
+      - run: atlas migrate status --url 'postgres://studio:studio@localhost:5432/studio?sslmode=disable' --dir file://database/migrations
+      - run: go run ./cmd/migrate-river
+        working-directory: services/api
+        env:
+          DATABASE_URL: postgres://studio:studio@localhost:5432/studio?sslmode=disable
+      - run: go test ./internal/planning -run TestDemoPlanningWorkflowIntegration -count=1 -v
+        working-directory: services/api
+        env:
+          STUDIO_INTEGRATION_DATABASE_URL: postgres://studio:studio@localhost:5432/studio?sslmode=disable
+
+  containers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose -f infra/compose/dev.yml config --quiet
+      - run: docker build -f infra/docker/api.Dockerfile -t studio-api:test .
+      - run: docker build -f infra/docker/worker.Dockerfile -t studio-worker:test .
+      - run: docker build -f infra/docker/web.Dockerfile -t studio-web:test .
+      - run: docker build -f infra/docker/renderer.Dockerfile -t studio-renderer:test .

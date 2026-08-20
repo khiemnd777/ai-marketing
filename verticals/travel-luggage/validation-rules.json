@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "schema": "product-schema.json",
+  "factValidators": ["currency", "percentage", "date", "dimensions", "weight", "capacity", "sku", "model", "product_name", "warranty", "phone", "website", "discount_code"],
+  "supportedLanguages": ["vi", "en"]
+}

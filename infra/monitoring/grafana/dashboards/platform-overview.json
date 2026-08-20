@@ -1,0 +1,112 @@
+{
+  "title": "AI Product Marketing Studio · Platform Overview",
+  "uid": "studio-platform",
+  "schemaVersion": 41,
+  "version": 2,
+  "refresh": "30s",
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "API availability",
+      "id": 1,
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 5 },
+      "targets": [{ "expr": "up{job=\"studio-api\"}", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Request rate",
+      "id": 2,
+      "gridPos": { "x": 6, "y": 0, "w": 9, "h": 8 },
+      "targets": [{ "expr": "sum(rate(studio_http_requests_total[5m])) by (status)", "legendFormat": "{{status}}", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 API latency",
+      "id": 3,
+      "gridPos": { "x": 15, "y": 0, "w": 9, "h": 8 },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(studio_http_request_duration_seconds_bucket[5m])) by (le, route))", "legendFormat": "{{route}}", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "Runnable River jobs",
+      "id": 4,
+      "gridPos": { "x": 0, "y": 8, "w": 6, "h": 5 },
+      "targets": [{ "expr": "studio_river_jobs_ready", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "Oldest runnable job",
+      "id": 5,
+      "gridPos": { "x": 6, "y": 8, "w": 6, "h": 5 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [{ "expr": "studio_river_oldest_ready_seconds", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "Daily provider cost",
+      "id": 6,
+      "gridPos": { "x": 12, "y": 8, "w": 6, "h": 5 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } },
+      "targets": [{ "expr": "studio_cost_daily_usd", "refId": "A" }]
+    },
+    {
+      "type": "stat",
+      "title": "Tracked media storage",
+      "id": 7,
+      "gridPos": { "x": 18, "y": 8, "w": 6, "h": 5 },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "targets": [{ "expr": "studio_storage_media_bytes", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Provider failures · last 24h",
+      "id": 8,
+      "gridPos": { "x": 0, "y": 13, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "studio_provider_seedance_failures_24h", "legendFormat": "Seedance", "refId": "A" },
+        { "expr": "studio_provider_render_failures_24h", "legendFormat": "Renderer", "refId": "B" },
+        { "expr": "studio_provider_r2_upload_failures_24h", "legendFormat": "R2", "refId": "C" },
+        { "expr": "studio_provider_meta_publish_failures_24h", "legendFormat": "Meta publishing", "refId": "D" },
+        { "expr": "studio_provider_meta_ads_failures_24h", "legendFormat": "Meta Ads", "refId": "E" },
+        { "expr": "studio_provider_webhook_failures_24h", "legendFormat": "Webhooks", "refId": "F" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Database pool",
+      "id": 9,
+      "gridPos": { "x": 12, "y": 13, "w": 6, "h": 8 },
+      "targets": [
+        { "expr": "studio_database_pool_acquired_connections", "legendFormat": "acquired", "refId": "A" },
+        { "expr": "studio_database_pool_idle_connections", "legendFormat": "idle", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Video attempt factor",
+      "id": 10,
+      "gridPos": { "x": 18, "y": 13, "w": 6, "h": 8 },
+      "targets": [{ "expr": "studio_video_attempt_factor", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Provider cost by provider",
+      "id": 11,
+      "gridPos": { "x": 0, "y": 21, "w": 12, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } },
+      "targets": [{ "expr": "studio_cost_provider_daily_usd", "legendFormat": "{{provider}}", "refId": "A" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Provider latency",
+      "id": 12,
+      "gridPos": { "x": 12, "y": 21, "w": 12, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "expr": "studio_provider_seedance_latency_seconds", "legendFormat": "Seedance", "refId": "A" },
+        { "expr": "studio_provider_render_latency_seconds", "legendFormat": "Renderer", "refId": "B" }
+      ]
+    }
+  ]
+}

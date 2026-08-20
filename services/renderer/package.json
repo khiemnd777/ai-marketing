@@ -1,0 +1,33 @@
+{
+  "name": "@studio/renderer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.0.0",
+    "@aws-sdk/lib-storage": "^3.0.0",
+    "@remotion/bundler": "4.0.513",
+    "@remotion/renderer": "4.0.513",
+    "@studio/video-templates": "workspace:*",
+    "qrcode": "1.5.4",
+    "react": "19.2.8",
+    "remotion": "4.0.513",
+    "sharp": "^0.34.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/qrcode": "1.5.6",
+    "@types/react": "19.2.8",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  }
+}

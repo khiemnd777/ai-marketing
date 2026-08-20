@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "templates": [
+    { "key": "INTERVIEW_REVIEW", "labelVi": "Phỏng vấn đánh giá", "characters": 2, "primarySpeakerPerScene": 1 },
+    { "key": "PROBLEM_SOLUTION", "labelVi": "Vấn đề – giải pháp", "characters": 2, "primarySpeakerPerScene": 1 }
+  ]
+}

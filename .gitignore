@@ -1,0 +1,32 @@
+.DS_Store
+.idea/
+.vscode/
+
+# Secrets and local overrides
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# JavaScript / Next.js / Bun
+node_modules/
+.next/
+out/
+dist/
+coverage/
+*.tsbuildinfo
+bun-error.log
+
+# Go
+bin/
+.gocache/
+*.test
+coverage.out
+
+# Generated and local runtime files
+.atlas/
+tmp/
+.tmp/
+render-tmp/
+playwright-report/
+test-results/

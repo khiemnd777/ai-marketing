@@ -1,0 +1,224 @@
+name: ai-marketing-studio-dev
+
+x-app-env: &app-env
+  APP_ENV: development
+  APP_URL: http://localhost:3000
+  DATABASE_URL: postgres://studio:studio@postgres:5432/studio?sslmode=disable
+  VERTICALS_DIR: /app/verticals
+  SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-before-shared-use-0001}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-dev-encryption-key-change-before-shared-use01}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
+  OPENAI_TRANSCRIPTION_MODEL: ${OPENAI_TRANSCRIPTION_MODEL:-gpt-4o-mini-transcribe}
+  OPENAI_REASONING_EFFORT: ${OPENAI_REASONING_EFFORT:-medium}
+  OPENAI_INPUT_USD_PER_1M: ${OPENAI_INPUT_USD_PER_1M:-0}
+  OPENAI_OUTPUT_USD_PER_1M: ${OPENAI_OUTPUT_USD_PER_1M:-0}
+  BYTEPLUS_MODELARK_API_KEY: ${BYTEPLUS_MODELARK_API_KEY:-}
+  SEEDANCE_BASE_URL: ${SEEDANCE_BASE_URL:-https://ark.ap-southeast.bytepluses.com/api}
+  SEEDANCE_MODEL: ${SEEDANCE_MODEL:-dreamina-seedance-2-0-260128}
+  SEEDANCE_API_VERSION: ${SEEDANCE_API_VERSION:-v3}
+  SEEDANCE_WEBHOOK_SECRET: ${SEEDANCE_WEBHOOK_SECRET:-}
+  SEEDANCE_CALLBACK_URL: ${SEEDANCE_CALLBACK_URL:-}
+  SEEDANCE_HTTP_TIMEOUT_SECONDS: ${SEEDANCE_HTTP_TIMEOUT_SECONDS:-30}
+  SEEDANCE_POLL_INTERVAL_SECONDS: ${SEEDANCE_POLL_INTERVAL_SECONDS:-15}
+  SEEDANCE_TASK_TIMEOUT_SECONDS: ${SEEDANCE_TASK_TIMEOUT_SECONDS:-1800}
+  SEEDANCE_USD_PER_SECOND: ${SEEDANCE_USD_PER_SECOND:-0}
+  R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-studio}
+  R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-studio-local-secret}
+  R2_BUCKET: ${R2_BUCKET:-studio-media}
+  R2_ENDPOINT: ${R2_ENDPOINT:-http://minio:9000}
+  META_APP_ID: ${META_APP_ID:-}
+  META_APP_SECRET: ${META_APP_SECRET:-}
+  META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-}
+  META_REDIRECT_URL: ${META_REDIRECT_URL:-http://localhost:8080/v1/meta/oauth/callback}
+  META_GRAPH_BASE_URL: ${META_GRAPH_BASE_URL:-https://graph.facebook.com}
+  META_DIALOG_BASE_URL: ${META_DIALOG_BASE_URL:-https://www.facebook.com}
+  RENDERER_BASE_URL: http://renderer:8090
+  RENDERER_SHARED_SECRET: ${RENDERER_SHARED_SECRET:-dev-renderer-secret-change-before-shared-use}
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+  DEMO_MODE: ${DEMO_MODE:-true}
+
+services:
+  postgres:
+    image: postgres:18.4-alpine
+    environment:
+      POSTGRES_USER: studio
+      POSTGRES_PASSWORD: studio
+      POSTGRES_DB: studio
+    ports: ["5432:5432"]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U studio -d studio"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    image: arigaio/atlas:1.2.0
+    working_dir: /workspace
+    volumes:
+      - ../..:/workspace:ro
+    environment:
+      DATABASE_URL: postgres://studio:studio@postgres:5432/studio?sslmode=disable
+    command: ["migrate", "apply", "--env", "local"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  river-migrate:
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
+    entrypoint: ["/app/migrate-river"]
+    environment: *app-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
+    environment:
+      <<: *app-env
+      HTTP_ADDRESS: :8080
+    ports: ["8080:8080"]
+    depends_on:
+      river-migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "/app/api", "--healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/worker.Dockerfile
+    environment: *app-env
+    depends_on:
+      river-migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+
+  renderer:
+    build:
+      context: ../..
+      dockerfile: infra/docker/renderer.Dockerfile
+    environment:
+      RENDERER_HOST: 0.0.0.0
+      RENDERER_PORT: 8090
+      RENDERER_SHARED_SECRET: ${RENDERER_SHARED_SECRET:-dev-renderer-secret-change-before-shared-use}
+      R2_ACCESS_KEY_ID: ${R2_ACCESS_KEY_ID:-studio}
+      R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-studio-local-secret}
+      R2_BUCKET: ${R2_BUCKET:-studio-media}
+      R2_ENDPOINT: ${R2_ENDPOINT:-http://minio:9000}
+    ports: ["8090:8090"]
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8090/health/live').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/web.Dockerfile
+    environment:
+      API_URL: http://api:8080
+    ports: ["3000:3000"]
+    depends_on: [api, renderer]
+
+  river-ui:
+    image: ghcr.io/riverqueue/riverui:v0.17.0
+    environment:
+      DATABASE_URL: postgres://studio:studio@postgres:5432/studio?sslmode=disable
+      RIVER_BASIC_AUTH_USER: ${RIVER_BASIC_AUTH_USER:-studio}
+      RIVER_BASIC_AUTH_PASS: ${RIVER_BASIC_AUTH_PASS:-studio-local-only}
+      RIVER_JOB_LIST_HIDE_ARGS_BY_DEFAULT: "true"
+    ports: ["8081:8080"]
+    depends_on:
+      river-migrate:
+        condition: service_completed_successfully
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: studio
+      MINIO_ROOT_PASSWORD: studio-local-secret
+    ports: ["9000:9000", "9001:9001"]
+    volumes:
+      - minio-data:/data
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z-cpuv1
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        until mc alias set local http://minio:9000 studio studio-local-secret; do sleep 1; done &&
+        mc mb --ignore-existing local/studio-media &&
+        mc anonymous set none local/studio-media
+    depends_on:
+      minio:
+        condition: service_started
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.132.0
+    command: ["--config=/etc/otelcol/config.yml"]
+    volumes:
+      - ../monitoring/otel-collector.yml:/etc/otelcol/config.yml:ro
+    ports: ["4317:4317", "4318:4318", "8889:8889"]
+    depends_on: [tempo]
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus"]
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    ports: ["9090:9090"]
+
+  tempo:
+    image: grafana/tempo:2.8.2
+    command: ["-config.file=/etc/tempo.yml"]
+    volumes:
+      - ../monitoring/tempo.yml:/etc/tempo.yml:ro
+      - tempo-data:/var/tempo
+    ports: ["3200:3200"]
+
+  loki:
+    image: grafana/loki:3.5.3
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ../monitoring/loki.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    ports: ["3100:3100"]
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-studio}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-studio-local-only}
+    volumes:
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports: ["3001:3000"]
+    depends_on: [prometheus, tempo, loki]
+
+volumes:
+  postgres-data:
+  minio-data:
+  prometheus-data:
+  tempo-data:
+  loki-data:
+  grafana-data:

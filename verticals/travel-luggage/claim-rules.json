@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "no-universal-carry-on-claim",
+      "severity": "BLOCK",
+      "patterns": ["all airlines", "every airline", "universal carry-on", "mọi hãng hàng không", "tất cả hãng hàng không"],
+      "requiredEvidenceFactKey": "airline_acceptance_exact_claim",
+      "guidance": "Present exact dimensions and tell consumers to check their airline requirements."
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://studio.internal/verticals/travel-luggage/product-schema.json",
+  "title": "Travel luggage product data",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["luggageType", "sizeInches", "externalDimensions", "emptyWeightKg", "capacityLiters", "shellMaterial", "wheelType", "wheelCount", "lockType", "handleType", "interiorCompartments", "expandable", "waterResistance", "warranty", "availableColors"],
+  "properties": {
+    "luggageType": { "enum": ["CARRY_ON", "CHECKED", "SET"] },
+    "sizeInches": { "type": "number", "minimum": 10, "maximum": 40 },
+    "externalDimensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["heightCm", "widthCm", "depthCm"],
+      "properties": {
+        "heightCm": { "type": "number", "exclusiveMinimum": 0 },
+        "widthCm": { "type": "number", "exclusiveMinimum": 0 },
+        "depthCm": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "emptyWeightKg": { "type": "number", "exclusiveMinimum": 0, "maximum": 20 },
+    "capacityLiters": { "type": "number", "exclusiveMinimum": 0, "maximum": 500 },
+    "shellMaterial": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "wheelType": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "wheelCount": { "type": "integer", "minimum": 0, "maximum": 16 },
+    "lockType": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "handleType": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "interiorCompartments": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 160 }, "maxItems": 30 },
+    "expandable": { "type": "boolean" },
+    "waterResistance": { "type": "string", "minLength": 1, "maxLength": 240 },
+    "warranty": { "type": "string", "minLength": 1, "maxLength": 240 },
+    "availableColors": { "type": "array", "items": { "type": "string", "minLength": 1, "maxLength": 80 }, "minItems": 1, "maxItems": 40, "uniqueItems": true }
+  }
+}

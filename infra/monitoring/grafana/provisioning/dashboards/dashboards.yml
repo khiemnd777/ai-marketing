@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: Studio Operations
+    folder: AI Product Marketing Studio
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

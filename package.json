@@ -1,0 +1,23 @@
+{
+  "name": "ai-product-marketing-studio",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "bun@1.3.1",
+  "engines": {
+    "node": ">=24.0.0",
+    "bun": ">=1.3.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "services/renderer",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun --filter @studio/web dev",
+    "lint": "bun run --filter '*' lint",
+    "typecheck": "bun run --filter '*' typecheck",
+    "test": "bun run --filter '*' test",
+    "build": "bun run --filter '*' build",
+    "openapi:check": "bun run --filter @studio/api-client generate:check"
+  }
+}

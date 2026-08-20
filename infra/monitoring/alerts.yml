@@ -1,0 +1,80 @@
+groups:
+  - name: studio-foundation
+    rules:
+      - alert: StudioAPIDown
+        expr: up{job="studio-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: AI Product Marketing Studio API is unavailable
+      - alert: StudioHighErrorRate
+        expr: sum(rate(studio_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum(rate(studio_http_requests_total[5m])), 1) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: API 5xx rate exceeds 5 percent
+      - alert: StudioRiverQueueStuck
+        expr: studio_river_oldest_ready_seconds > 900
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Oldest runnable River job has waited more than 15 minutes
+      - alert: StudioRiverJobsDiscarded
+        expr: studio_river_jobs_discarded > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: One or more River jobs exhausted their retries
+      - alert: StudioRiverRetriesHigh
+        expr: studio_river_retries_24h > 20
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: River recorded more than 20 retry attempts in 24 hours
+      - alert: StudioProviderFailures
+        expr: studio_provider_seedance_failures_24h + studio_provider_render_failures_24h + studio_provider_r2_upload_failures_24h + studio_provider_meta_publish_failures_24h + studio_provider_meta_ads_failures_24h + studio_provider_webhook_failures_24h > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Provider workflow failures were recorded in the last 24 hours
+      - alert: StudioDailyProviderCostHigh
+        expr: studio_cost_daily_usd > 100
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Daily provider cost exceeds the default USD 100 operational threshold
+      - alert: StudioVideoAttemptFactorHigh
+        expr: studio_video_attempt_factor > 2
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Average Seedance attempts per scene exceeds 2
+      - alert: StudioSeedanceFailureRatioHigh
+        expr: studio_provider_seedance_failure_ratio_24h > 0.2
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Seedance terminal-task failure ratio exceeds 20 percent
+      - alert: StudioRenderFailureRatioHigh
+        expr: studio_provider_render_failure_ratio_24h > 0.1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Final render failure ratio exceeds 10 percent
+      - alert: StudioMediaStorageHigh
+        expr: studio_storage_media_bytes > 107374182400
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: Tracked media storage exceeds 100 GiB

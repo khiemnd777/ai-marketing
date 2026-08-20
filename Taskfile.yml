@@ -1,0 +1,13 @@
+version: '3'
+
+tasks:
+  install:
+    cmds: [bun install --frozen-lockfile]
+  generate:
+    cmds: [go generate ./services/api/..., bun run openapi:check]
+  test:
+    cmds: [go test ./..., bun run test]
+  verify:
+    cmds: [make verify]
+  dev:
+    cmds: [make dev]

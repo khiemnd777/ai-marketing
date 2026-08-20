@@ -1,0 +1,110 @@
+# Implementation Status
+
+Last updated: 2026-08-20
+
+## Current state
+
+Milestones 0 through 6 are complete. The starting directory was empty except for a local secret file; no existing application, documentation, migrations, tests, or Git history existed.
+
+## Milestones
+
+| Milestone | Status | Validation evidence |
+| --- | --- | --- |
+| 0 — Foundation | Complete | Go race suite, JS typecheck/lint/tests/build, PostgreSQL 18 migrations, River migrations, Compose config, and production image builds passed. |
+| 1 — Product data | Complete | PostgreSQL 18 migration, vertical schema validation, tenant-isolated CRUD, immutable brand/product/fact/claim versions, approval and lock enforcement, direct/multipart object uploads, River media metadata extraction, thumbnail generation, audit logging, HTTP isolation regression, race suite, production builds, and API/web/worker image builds passed. |
+| 2 — AI planning | Complete | Versioned campaign briefs, strict OpenAI Responses schemas, deterministic demo provider, concept/content/script/scene generation, two-character selection, approval invalidation, cost estimates, provider traces, generated OpenAPI client, full workflow UI, and fresh-PostgreSQL integration test passed. |
+| 3 — Video generation | Complete | Typed BytePlus ModelArk adapter, exact paid-submit idempotency, callback and polling reconciliation, private output persistence, transcription, automated QC, human checklist, edit metadata, preferred-take selection, generated API client, scene review UI, and PostgreSQL integration passed. |
+| 4 — Final rendering | Complete | Versioned scene composer, signed/hash-validated renderer manifests, private input fetching, Remotion composition, ffmpeg/ffprobe validation, MP4/thumbnail/SRT/VTT outputs, object-store idempotency, final review/selection UI, PostgreSQL integration, production container startup, and a real 30-second render passed. |
+| 5 — Meta distribution | Complete | Encrypted OAuth, Page/Instagram and Ads discovery, approval-bound publishing, PAUSED-by-default campaign creation, exact budget confirmations, spend guardrails, audited actions, insights sync, generated API contract, operator UI, fresh PostgreSQL migration, and end-to-end integration passed. |
+| 6 — Analytics and hardening | Complete | Normalized cost ledger, scoped analytics, human-reviewed recommendations, admin operations console, maintenance jobs, OpenTelemetry/Prometheus/Grafana observability, alert rules, retention and recovery runbooks, backup/restore tooling, fresh-schema replay, full race/build suites, and four production image builds passed. |
+
+## Verified assumptions
+
+- Official OpenAI documentation lists `gpt-5.6-luna` as supporting the Responses API and Structured Outputs. Model and reasoning effort remain runtime configuration.
+- Cloudflare R2 presigned URLs operate on the S3 endpoint and support GET, HEAD, PUT, and DELETE. Large resumable media uses the S3 multipart operations rather than browser form POST.
+- Atlas versioned migrations use ordered SQL files plus `atlas.sum`; CI will validate migration integrity against PostgreSQL 18.
+
+## Environment observations
+
+- Host Bun: 1.3.1.
+- Host Node: 23.11.0; production and CI will use Node 24 containers.
+- Host Go: 1.25.0; production and CI pin Go 1.26.7. The host's auto-fetched 1.26.0 archive was incomplete, while the current 1.26.7 toolchain successfully ran sqlc.
+- Atlas, sqlc, FFmpeg, and ffprobe are not installed on the host; repository tool containers will provide them.
+- Live provider calls remain disabled in tests and demo mode.
+- Remotion's official license page classifies automated video applications under its Company/Automators licensing. Production release therefore requires an active license when the organization is outside the free-license terms; all Remotion packages are pinned to 4.0.513.
+
+## Validation log
+
+### Milestone 0 — 2026-08-20
+
+- `cd services/api && gofmt -w cmd internal && GOCACHE="$PWD/.gocache" go test ./...` — passed.
+- `cd services/api && GOCACHE="$PWD/.gocache" go vet ./... && GOCACHE="$PWD/.gocache" go test -race ./...` — passed.
+- `bun run typecheck`, `bun run test`, and `bun run lint` — passed across all workspaces.
+- `bun run build` — passed; the web package uses Next's supported webpack builder because this macOS sandbox prohibits Turbopack's internal CSS worker from binding a localhost port.
+- `docker compose -f infra/compose/dev.yml config --quiet` — passed.
+- `atlas migrate apply` through `arigaio/atlas:1.2.0` against an isolated `postgres:18.4-alpine` container — 1 migration/18 statements passed.
+- River's official migrator from the built API image against the same database — versions 1–7 passed.
+- `docker build` for `infra/docker/api.Dockerfile`, `web.Dockerfile`, and `renderer.Dockerfile` — passed.
+- Built API `/app/api --healthcheck` and renderer `/health/ready` — passed.
+
+Deferred to later milestones: full provider-specific dashboards and alert tuning, backup/restore drills, and deployment smoke testing belong to Milestone 6.
+
+### Milestone 1 — 2026-08-20
+
+- Applied `20260820000200_product_data.sql` against isolated PostgreSQL 18: 37 statements passed and the Atlas schema snapshot was regenerated.
+- Exercised the HTTP workflow for client, workspace, immutable brand/product versions, Product Truth approval and locking, and cross-workspace concealment; all assertions passed.
+- `cd services/api && GOCACHE="$PWD/.gocache" go vet ./... && GOCACHE="$PWD/.gocache" go test -race ./...` — passed, including deterministic fact/claim validation, JSON Schema validation, object-key isolation, upload validation, and ffprobe decoding.
+- `bun run openapi:check`, `bun run typecheck`, `bun run lint`, `bun run test`, and `bun run build` — passed across all workspaces.
+- Built production API, web, and dedicated media-worker images. Runtime checks confirmed both `ffmpeg` and `ffprobe` are present in the non-root worker image.
+- Upload completion and River job insertion share one PostgreSQL transaction. Fact and claim approval versions and their before/after audit events also share the approval transaction.
+
+### Milestone 2 — 2026-08-20
+
+- Applied `20260820000300_ai_planning.sql` and `20260820000310_campaign_characters.sql` against isolated PostgreSQL 18: 45 statements passed and the canonical schema snapshot was regenerated at the migration head.
+- Implemented immutable campaign, concept, content, script, and scene versions with optimistic concurrency, approval hashes, approval events, and downstream invalidation on meaningful changes.
+- Implemented a strict `LLMProvider` boundary. The live adapter uses the OpenAI Responses API with strict JSON Schemas; the deterministic demo provider covers both video formats, all 14 content variants, 30/45-second scripts, and exact-duration scene directions without paid calls.
+- Implemented transactional generation jobs and provider request/output traces with input/output hashes, model, prompt version, token usage, estimated/actual cost, request IDs, and sanitized errors.
+- Added the complete Campaign Builder UI: brief, concept comparison/edit/approve/reject/lock, content variants, script editor, two-character selection, Scene Director, estimates, and reload-safe job polling.
+- `STUDIO_INTEGRATION_DATABASE_URL=... go test ./internal/planning -run TestDemoPlanningWorkflowIntegration -count=1 -v` against a fresh `postgres:18.4-alpine` database — passed. It asserted four successful jobs, two concepts, 14 variants, script approval, four scenes totaling exactly 30 seconds, the selected character pair, provider trace parity, and approval persistence.
+- `cd services/api && GOCACHE="$PWD/.gocache" go test ./...` — passed.
+- API provider/validator tests, web and generated-client type checks, ESLint, API-client tests, and web tests — passed. Live provider calls remained disabled.
+
+### Milestone 3 — 2026-08-20
+
+- Applied `20260820000400_video_generation.sql` against PostgreSQL 18: 17 statements passed. The canonical Atlas schema snapshot was regenerated at the M3 migration head.
+- Implemented a typed BytePlus ModelArk v3 adapter for create, retrieve, and queued-task cancellation with text/image/video/audio references, configurable model and format, bounded HTTP I/O, normalized errors, sanitized request/response traces, and temporary-output URL isolation.
+- Implemented immutable generation fingerprints across workspace, campaign, scene version/hash, prompt, reference assets/provider assets, model, resolution, ratio, duration, and audio. Identical active/successful work is reused; the chargeable create worker has one attempt and never auto-retries an ambiguous submission.
+- Implemented callback-token authentication, callback replay hashes, monotonic state reconciliation, and polling fallback. Successful outputs transition through download and validation, are copied immediately to private R2-compatible storage, checksummed, probed, thumbnailed, and persisted as scoped media assets.
+- Implemented OpenAI/demo transcription, normalized transcript comparison, decode/duration/resolution/audio checks, human visual review fields, immutable approval events, rejection notes, selection of an approved take, and non-destructive trim/mute/transition/replacement/product-attachment/subtitle-preview metadata.
+- Expanded `TestDemoPlanningWorkflowIntegration` to assert generation idempotency, exactly one paid-submit job, provider submit/status synchronization, download handoff, edits, human approval, and preferred-take selection against PostgreSQL 18.
+- `cd services/api && GOCACHE="$PWD/.gocache" go test ./...`, provider contract tests, generated-client/web type checks, lint, tests, and production web build passed. Live paid provider calls remained disabled.
+
+### Milestone 4 — 2026-08-20
+
+- Applied `20260820000500_final_rendering.sql` against PostgreSQL 18 and regenerated both `atlas.sum` and the canonical schema snapshot at the M4 migration head.
+- Implemented immutable video-project versions, manifest hashes, render jobs, normalized video outputs, SRT/VTT output records, final approvals, selected campaign output, and downstream approval invalidation when composition settings change.
+- Implemented the scene-based final composer for AI takes, replacement/product media, logos, headline/lower-third, structured price/discount/CTA/website/phone/QR/disclaimer overlays, Vietnamese/English burned captions, music gain, dialogue ducking, sound effects, transitions, 1080×1920 H.264/AAC MP4, and thumbnail output.
+- The isolated Node.js 24 renderer verifies HMAC requests and every input SHA-256, serves only downloaded local inputs to Remotion, validates output with ffprobe, uploads private outputs with normalized metadata, cleans per-render temp directories, and reuses an existing output only when its render ID matches.
+- Expanded the PostgreSQL workflow integration test to cover all selected approved takes, a single River render job under repeated idempotency keys, immutable final approval, final selection, and campaign approval.
+- Built and started the production-like renderer image with pinned Chromium, ffmpeg, Noto fonts, Remotion 4.0.513, and a non-root runtime. A signed 30-second Vietnamese smoke manifest rendered through private MinIO to a 1080×1920, 30 fps, 30.059-second H.264/AAC MP4 plus thumbnail; ffprobe checks and a repeated `reused: true` request passed.
+
+### Milestone 5 — 2026-08-20
+
+- Added the direct Meta provider boundary and live Graph API adapter for OAuth, Page/Instagram discovery and publishing, Business/Ad Account/Pixel/Audience discovery, PAUSED campaign creation, status and budget changes, and campaign insights. Server-side `appsecret_proof`, bounded I/O, normalized errors, and a deterministic demo adapter prevent provider details or secrets from leaking into browser contracts.
+- Added AES-256-GCM token storage with random nonces and workspace/account-bound associated data. OAuth state is one-time and hashed, reconnect/disconnect wipes old ciphertext, expiry is exposed as safe metadata, and workers refuse expired token or data-access windows.
+- Added per-platform social posts with caption, immediate or River-scheduled delivery, idempotency, immutable content hashes, approval rechecks immediately before publishing, retryable/permanent failure classification, provider IDs/URLs, and audit coverage.
+- Added Meta Ads account selection, Pixel and Audience linkage, objective, daily/lifetime budget modes, dates, location/age/gender/interest/custom/retargeting audience data, placements, HTTPS destination/UTM data, creative and thumbnail variants, and preview metadata.
+- Ads are created on Meta only as `PAUSED`. Creation, activation/resume, and budget increases require human approval and exact amount confirmations. Workspace aggregate caps, campaign caps, maximum percentage increases, optimistic versions, action hashes, and one-attempt ambiguous-submit workers prevent autonomous spend changes; pause/archive remain auditable operator actions.
+- Added campaign/action history and Insights synchronization plus the `/settings/meta`, campaign Publishing, and Meta Ads UI. The generated OpenAPI client, web typecheck, and ESLint passed.
+- Refreshed `atlas.sum`, applied all 7 migrations/159 statements to a fresh `postgres:18.4-alpine` database, regenerated the canonical schema snapshot, and expanded the integration workflow through Meta OAuth discovery, publishing, PAUSED Ads creation, metrics sync, human activation, and rejection of a 30% budget increase over the configured 20% guardrail.
+
+### Milestone 6 — 2026-08-20
+
+- Applied the analytics and operations migration at the full migration head, refreshed `atlas.sum`, regenerated the canonical PostgreSQL schema, and replayed that snapshot into a second clean PostgreSQL 18 database, including the analytics materialized view and concurrent-refresh index.
+- Added immutable usage and cost records with provider/model/reference attribution, generated and accepted units, idempotency, outcome tracking, reuse metadata, exchange-rate snapshots, and USD normalization. Planning, Seedance review, and final rendering now record usage through the shared ledger.
+- Added tenant-scoped cost, video, social, Ads, daily, and creative analytics. Deterministic recommendations persist their input snapshot, model, output, rationale, reviewer, decision, and any separately approved action; recommendations never mutate spend or campaign state autonomously.
+- Added an admin operations console with API/provider health, River queue depth and age, retry/discard/stuck visibility, controlled retry/cancel, maintenance mode, webhook and provider failure summaries, safe configuration metadata, costs, anomalies, storage, feature flags, and audit history. No raw credentials or provider payloads are returned.
+- Added hourly retention and maintenance jobs for sessions, idempotency records, OAuth state, webhook bodies, River history, expiring Meta connections, cost anomalies, and concurrent analytics refresh. Added versioned retention, R2 lifecycle, failure recovery, secret rotation, Coolify deployment, backup/restore, security, and performance documentation.
+- Added OpenTelemetry trace propagation across HTTP, River, provider clients, and renderer requests; Prometheus metrics and alerts cover request failures, provider latency/failures, River queue state/retries/age, PostgreSQL pool saturation, costs, storage, render/generation health, webhooks, and process resource telemetry. Grafana, Tempo, Loki, and Prometheus are wired in production Compose.
+- The live PostgreSQL integration workflow passed through planning, generation, rendering persistence, Meta publishing/Ads, usage normalization, analytics, recommendation review, operations queries, and maintenance. `go vet`, the complete Go suite, the Go race suite, OpenAPI generation check, JavaScript typecheck/lint/tests, Next.js production build, Atlas validation, Prometheus rule/config validation, and both development and production Compose validation passed.
+- Built production API, worker, web, and renderer images. API health, web route delivery, renderer readiness, renderer's real 30-second 1080×1920 output, and non-root media-worker runtime dependencies were verified.
