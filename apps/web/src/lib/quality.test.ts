@@ -11,7 +11,8 @@ describe("qualityNeedsAction", () => {
     expect(qualityNeedsAction({ status, qualityCheck })).toBe(true);
   });
 
-  it("keeps a clean approved take out of the action queue", () => {
-    expect(qualityNeedsAction({ status: "APPROVED", qualityCheck: { status: "PASSED", findings: [] } })).toBe(false);
+  it("keeps an approved take actionable until it is selected for Composer", () => {
+    expect(qualityNeedsAction({ status: "APPROVED", selected: false, qualityCheck: { status: "PASSED", findings: [] } })).toBe(true);
+    expect(qualityNeedsAction({ status: "APPROVED", selected: true, qualityCheck: { status: "PASSED", findings: [] } })).toBe(false);
   });
 });

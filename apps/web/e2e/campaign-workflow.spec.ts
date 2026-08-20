@@ -18,12 +18,18 @@ async function waitForGeneration(page: Page, operation: string) {
   await expect(page.getByText("SUCCEEDED", { exact: true }).first()).toBeVisible({ timeout: 20_000 });
 }
 
+async function clickAndExpect(page: Page, buttonName: string, path: RegExp, method: string, status: number) {
+  const responsePromise = page.waitForResponse((response) => path.test(new URL(response.url()).pathname) && response.request().method() === method);
+  await page.getByRole("button", { name: buttonName }).first().click();
+  expect((await responsePromise).status()).toBe(status);
+}
+
 test.beforeEach(() => {
   test.skip(!email || !password, "STUDIO_TEST_EMAIL and STUDIO_TEST_PASSWORD are required");
 });
 
-test("product truth to approved scene planning journey", async ({ page }) => {
-  test.setTimeout(90_000);
+test("complete no-cost product truth to analytics journey", async ({ page }) => {
+  test.setTimeout(12 * 60_000);
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const clientName = `Journey Client ${suffix}`;
   const workspaceName = `Journey Workspace ${suffix}`;
@@ -97,6 +103,7 @@ test("product truth to approved scene planning journey", async ({ page }) => {
   await page.getByLabel("Sản phẩm").selectOption({ label: productName });
   await page.getByRole("button", { name: "Tạo brief" }).click();
   await page.getByRole("link", { name: campaignName }).click();
+  const campaignId = new URL(page.url()).pathname.split("/")[2]!;
   await page.getByLabel("Người nói").selectOption({ label: `${primaryName} · NOT_REQUIRED` });
   await page.getByLabel("Người nghe").selectOption({ label: `${listenerName} · NOT_REQUIRED` });
   await page.getByRole("button", { name: "Khóa cặp nhân vật" }).click();
@@ -120,9 +127,67 @@ test("product truth to approved scene planning journey", async ({ page }) => {
   await page.getByRole("link", { name: "Cảnh quay" }).click();
   await waitForGeneration(page, "scenes");
   await expect(page.getByRole("button", { name: "Duyệt" })).toHaveCount(4);
-  await page.getByRole("button", { name: "Duyệt" }).first().click();
-  await expect(page.getByText("APPROVED", { exact: true }).first()).toBeVisible();
+  for (let remaining = 4; remaining > 0; remaining -= 1) {
+    await clickAndExpect(page, "Duyệt", /\/scenes\/[^/]+\/approve$/, "POST", 200);
+    await expect(page.getByRole("button", { name: "Duyệt" })).toHaveCount(remaining - 1);
+  }
+
+  await expect(page.getByRole("button", { name: "Tạo take · 720p" })).toHaveCount(4);
+  for (let index = 0; index < 4; index += 1) {
+    const responsePromise = page.waitForResponse((response) => /\/scenes\/[^/]+\/generations$/.test(new URL(response.url()).pathname) && response.request().method() === "POST");
+    await page.getByRole("button", { name: "Tạo take · 720p" }).nth(index).click();
+    expect((await responsePromise).status()).toBe(202);
+  }
+  await expect(page.getByText("REVIEW_REQUIRED", { exact: true })).toHaveCount(4, { timeout: 3 * 60_000 });
 
   await page.getByRole("link", { name: "Quality" }).click();
   await expect(page.getByRole("heading", { name: "Quality & Review" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Duyệt take" })).toHaveCount(4);
+  for (let remaining = 4; remaining > 0; remaining -= 1) {
+    await clickAndExpect(page, "Duyệt take", /\/generations\/[^/]+\/review$/, "PUT", 200);
+    await expect(page.getByRole("button", { name: "Duyệt take" })).toHaveCount(remaining - 1);
+  }
+  await expect(page.getByRole("button", { name: "Chọn cho Composer" })).toHaveCount(4);
+  for (let remaining = 4; remaining > 0; remaining -= 1) {
+    await clickAndExpect(page, "Chọn cho Composer", /\/generations\/[^/]+\/select$/, "POST", 200);
+    await expect(page.getByRole("button", { name: "Chọn cho Composer" })).toHaveCount(remaining - 1);
+  }
+
+  await page.getByRole("link", { name: "Composer" }).click();
+  await expect(page.getByText("4/4 scene sẵn sàng", { exact: true })).toBeVisible();
+  await clickAndExpect(page, "Render MP4", /\/final-renders$/, "POST", 202);
+  await expect(page.getByText("REVIEW_REQUIRED", { exact: true })).toBeVisible({ timeout: 6 * 60_000 });
+
+  await page.getByRole("link", { name: "Quality" }).click();
+  await clickAndExpect(page, "Duyệt final", /\/final-renders\/[^/]+\/review$/, "PUT", 200);
+  await clickAndExpect(page, "Chọn output", /\/final-renders\/[^/]+\/select$/, "POST", 200);
+  await expect(page.getByText("Campaign output", { exact: true })).toBeVisible();
+
+  await page.goto(`/settings/meta?clientId=${clientId}&workspaceId=${workspaceId}`);
+  await page.getByRole("button", { name: "Kết nối Meta" }).click();
+  await expect(page).toHaveURL(/\/settings\/meta\?.*connected=1/, { timeout: 30_000 });
+  await expect(page.getByRole("heading", { name: "Demo Meta Operator" })).toBeVisible();
+  await expect(page.getByText("CONNECTED", { exact: true }).first()).toBeVisible();
+
+  await page.goto(`/campaigns/${campaignId}/publishing?clientId=${clientId}&workspaceId=${workspaceId}`);
+  await expect(page.getByRole("heading", { name: "Tạo publishing request" })).toBeVisible();
+  await clickAndExpect(page, "Gửi để duyệt", /\/social-posts$/, "POST", 201);
+  await clickAndExpect(page, "Duyệt publish", /\/social-posts\/[^/]+\/review$/, "PUT", 200);
+  await expect(page.getByText("PUBLISHED", { exact: true })).toBeVisible({ timeout: 30_000 });
+
+  await page.goto(`/campaigns/${campaignId}/ads?clientId=${clientId}&workspaceId=${workspaceId}`);
+  await clickAndExpect(page, "Lưu guardrails", /\/meta-ad-guardrails$/, "PUT", 200);
+  await clickAndExpect(page, "Tạo để duyệt", /\/meta-ad-campaigns$/, "POST", 201);
+  await page.getByLabel("Xác nhận tạo campaign PAUSED").fill("CREATE PAUSED VND 100000");
+  await clickAndExpect(page, "Duyệt tạo PAUSED", /\/meta-ad-campaigns\/[^/]+\/review$/, "PUT", 200);
+  await expect(page.getByText("PAUSED", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
+
+  await page.goto(`/analytics?clientId=${clientId}&workspaceId=${workspaceId}&campaignId=${campaignId}`);
+  await expect(page.getByRole("heading", { name: "Analytics & Learning" })).toBeVisible();
+  await expect(page.getByText("Chi phí provider", { exact: true })).toBeVisible();
+  await expect.poll(async () => {
+    await page.reload();
+    return page.getByText("Ads CTR", { exact: true }).locator("..").innerText();
+  }, { timeout: 30_000 }).not.toContain("0 / 0 clicks");
+  await clickAndExpect(page, "Tạo recommendation", /\/analytics\/recommendations$/, "POST", 201);
 });

@@ -104,7 +104,7 @@ jobs:
 
   browser-e2e:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:18.4-alpine
@@ -157,6 +157,54 @@ jobs:
           version: v1.2.0
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
+      - name: Ensure worker media tools
+        run: |
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+          ffmpeg -version
+          ffprobe -version
+      - name: Start private object storage and production renderer
+        run: |
+          set -euo pipefail
+          docker build -f infra/docker/renderer.Dockerfile -t studio-renderer:e2e .
+          docker network create studio-browser-e2e
+          docker run --detach --name studio-minio-e2e --network studio-browser-e2e --network-alias minio --publish 9000:9000 \
+            --env MINIO_ROOT_USER=e2e-access-key \
+            --env MINIO_ROOT_PASSWORD=e2e-secret-key \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1 server /data
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:9000/minio/health/ready >/dev/null; then
+              break
+            fi
+            if [ "${attempt}" -eq 60 ]; then
+              docker logs studio-minio-e2e
+              exit 1
+            fi
+            sleep 1
+          done
+          docker run --rm --network studio-browser-e2e --entrypoint /bin/sh \
+            minio/mc:RELEASE.2025-08-13T08-35-41Z-cpuv1 -c \
+            'mc alias set studio http://minio:9000 e2e-access-key e2e-secret-key && mc mb --ignore-existing studio/e2e-media'
+          docker run --detach --name studio-renderer-e2e --network studio-browser-e2e --network-alias renderer --shm-size 1gb --publish 8090:8090 \
+            --env RENDERER_SHARED_SECRET=e2e-renderer-shared-secret-at-least-32-bytes \
+            --env RENDER_CONCURRENCY=1 \
+            --env R2_ACCESS_KEY_ID=e2e-access-key \
+            --env R2_SECRET_ACCESS_KEY=e2e-secret-key \
+            --env R2_BUCKET=e2e-media \
+            --env R2_ENDPOINT=http://minio:9000 \
+            studio-renderer:e2e
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8090/health/ready >/dev/null; then
+              exit 0
+            fi
+            if [ "${attempt}" -eq 60 ]; then
+              docker logs studio-renderer-e2e
+              exit 1
+            fi
+            sleep 1
+          done
       - run: atlas migrate apply --url "$DATABASE_URL" --dir file://database/migrations
       - run: go run ./cmd/migrate-river
         working-directory: services/api
@@ -192,6 +240,11 @@ jobs:
           cat /tmp/studio-api-e2e.log /tmp/studio-web-e2e.log
           exit 1
       - run: bun run test:e2e
+      - name: Capture container diagnostics
+        if: failure()
+        run: |
+          docker logs studio-minio-e2e >/tmp/studio-minio-e2e.log 2>&1 || true
+          docker logs studio-renderer-e2e >/tmp/studio-renderer-e2e.log 2>&1 || true
       - name: Upload browser diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -203,6 +256,13 @@ jobs:
             /tmp/studio-api-e2e.log
             /tmp/studio-worker-e2e.log
             /tmp/studio-web-e2e.log
+            /tmp/studio-minio-e2e.log
+            /tmp/studio-renderer-e2e.log
+      - name: Stop browser test services
+        if: always()
+        run: |
+          docker rm --force studio-renderer-e2e studio-minio-e2e >/dev/null 2>&1 || true
+          docker network rm studio-browser-e2e >/dev/null 2>&1 || true
 
   containers:
     runs-on: ubuntu-latest
