@@ -28,6 +28,7 @@ jobs:
       - run: bun run openapi:check
       - run: node --check scripts/certify-live-readiness.mjs
       - run: bun run test:certification
+      - run: node --check services/renderer/scripts/smoke-renderer.mjs
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run test
@@ -213,22 +214,51 @@ jobs:
       - run: docker build -f infra/docker/worker.Dockerfile -t studio-worker:test .
       - run: docker build -f infra/docker/web.Dockerfile -t studio-web:test .
       - run: docker build -f infra/docker/renderer.Dockerfile -t studio-renderer:test .
-      - name: Smoke production renderer startup
+      - name: Smoke production renderer end to end
         run: |
-          docker run --detach --name studio-renderer-smoke --publish 18090:8090 \
+          set -euo pipefail
+          fixture_dir="$(mktemp -d)"
+          cleanup() {
+            docker rm --force studio-renderer-smoke studio-minio-smoke >/dev/null 2>&1 || true
+            docker network rm studio-render-smoke >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker network create studio-render-smoke >/dev/null
+          docker run --detach --name studio-minio-smoke --network studio-render-smoke --network-alias minio --publish 19000:9000 \
+            --env MINIO_ROOT_USER=studio \
+            --env MINIO_ROOT_PASSWORD=studio-local-secret \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1 server /data
+          docker run --detach --name studio-renderer-smoke --network studio-render-smoke --network-alias renderer --shm-size 1gb --publish 18090:8090 \
             --env RENDERER_SHARED_SECRET=renderer-smoke-secret-at-least-32-bytes \
-            --env R2_ACCESS_KEY_ID=smoke-access \
-            --env R2_SECRET_ACCESS_KEY=smoke-secret \
-            --env R2_BUCKET=smoke-media \
-            --env R2_ENDPOINT=http://127.0.0.1:19000 \
+            --env RENDER_CONCURRENCY=1 \
+            --env R2_ACCESS_KEY_ID=studio \
+            --env R2_SECRET_ACCESS_KEY=studio-local-secret \
+            --env R2_BUCKET=studio-render-smoke \
+            --env R2_ENDPOINT=http://minio:9000 \
             studio-renderer:test
-          for attempt in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:18090/health/ready >/dev/null; then
-              docker rm --force studio-renderer-smoke
-              exit 0
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:19000/minio/health/ready >/dev/null \
+              && curl --fail --silent http://127.0.0.1:18090/health/ready >/dev/null; then
+              break
+            fi
+            if [ "${attempt}" -eq 60 ]; then
+              docker logs studio-minio-smoke
+              docker logs studio-renderer-smoke
+              exit 1
             fi
             sleep 1
           done
+          docker run --rm --user "$(id -u):$(id -g)" --volume "${fixture_dir}:/fixtures" \
+            studio-renderer:test ffmpeg -hide_banner -loglevel error -y \
+            -f lavfi -i color=c=0x17352d:s=360x640:r=30:d=30 \
+            -f lavfi -i anullsrc=r=48000:cl=stereo -t 30 \
+            -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -shortest /fixtures/source.mp4
+          docker run --rm --network studio-render-smoke --user "$(id -u):$(id -g)" \
+            --volume "${fixture_dir}:/fixtures" \
+            --volume "${PWD}/services/renderer/scripts/smoke-renderer.mjs:/app/services/renderer/smoke-renderer.mjs:ro" \
+            --env STUDIO_RENDER_SMOKE_URL=http://renderer:8090 \
+            --env STUDIO_RENDER_SMOKE_STORAGE_URL=http://minio:9000 \
+            studio-renderer:test node /app/services/renderer/smoke-renderer.mjs /fixtures/source.mp4
+          docker run --rm --user "$(id -u):$(id -g)" --volume "${fixture_dir}:/fixtures:ro" \
+            studio-renderer:test ffmpeg -hide_banner -loglevel error -i /fixtures/output.mp4 -f null -
           docker logs studio-renderer-smoke
-          docker rm --force studio-renderer-smoke
-          exit 1
