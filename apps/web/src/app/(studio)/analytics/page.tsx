@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Lightbulb, RefreshCw, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
+import { useStudioScope } from "@/components/studio-scope";
 import { Badge, Button, Card, Field, PageHeader, SkeletonRows, StatePanel, inputClass } from "@/components/ui";
 import { api } from "@/lib/api";
 import { apiError } from "@/lib/problem";
@@ -23,8 +24,7 @@ export default function AnalyticsPage() {
 
 function AnalyticsContent() {
   const params = useSearchParams();
-  const clientId = params.get("clientId") ?? "";
-  const workspaceId = params.get("workspaceId") ?? "";
+  const { clientId, workspaceId } = useStudioScope();
   const [from, setFrom] = useState(thirtyDaysAgo);
   const [to, setTo] = useState(today);
   const [campaignId, setCampaignId] = useState(params.get("campaignId") ?? "");

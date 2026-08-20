@@ -2,6 +2,7 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
+import { ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
@@ -18,7 +19,7 @@ const schema = z.object({
 
 type Values = z.infer<typeof schema>;
 
-export function PasswordChangeForm({ returnUrl }: { returnUrl: string }) {
+export function PasswordChangeForm({ returnUrl, forced }: { returnUrl: string; forced: boolean }) {
   const router = useRouter();
   const form = useForm<Values>({ resolver: zodResolver(schema), defaultValues: { currentPassword: "", newPassword: "", confirmation: "" } });
   const change = useMutation({
@@ -51,7 +52,8 @@ export function PasswordChangeForm({ returnUrl }: { returnUrl: string }) {
         <input className={inputClass} type="password" autoComplete="new-password" {...form.register("confirmation")} />
       </Field>
       {change.error ? <p role="alert" className="rounded-2xl bg-[#ffe5de] px-4 py-3 text-sm font-semibold text-[#853a2a]">{change.error.message}</p> : null}
-      <Button type="submit" disabled={change.isPending}>{change.isPending ? "Đang cập nhật…" : "Đổi mật khẩu và tiếp tục"}</Button>
+      <Button type="submit" disabled={change.isPending}>{change.isPending ? "Đang cập nhật…" : forced ? "Đổi mật khẩu và tiếp tục" : "Đổi mật khẩu"}</Button>
+      {!forced ? <Button className="bg-transparent text-[var(--ink)] ring-1 ring-[var(--line)] hover:bg-white" onClick={() => router.push(returnUrl)}><ArrowLeft className="mr-2 size-4" />Quay lại</Button> : null}
       <Button className="bg-transparent text-[var(--ink)] ring-1 ring-[var(--line)] hover:bg-white" disabled={logout.isPending} onClick={() => logout.mutate()}>Đăng xuất</Button>
     </form>
   );

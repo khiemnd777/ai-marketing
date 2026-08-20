@@ -9,6 +9,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/audit"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/auth"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/gen/db"
 )
 
 var (
@@ -54,6 +58,7 @@ type Input struct {
 	SupportedLanguages    []string   `json:"supportedLanguages"`
 	ConsentStatus         string     `json:"consentStatus"`
 	PreviewAssetID        *uuid.UUID `json:"previewAssetId"`
+	Version               int64      `json:"version"`
 }
 
 type Selection struct {
@@ -93,6 +98,58 @@ func (s *Service) Create(ctx context.Context, clientID, workspaceID, actorID uui
 		return Character{}, ErrNotFound
 	}
 	return item, err
+}
+
+func (s *Service) Update(ctx context.Context, clientID, workspaceID, id uuid.UUID, actor auth.Principal, metadata auth.ClientMetadata, input Input) (Character, error) {
+	if input.Version < 1 {
+		return Character{}, ErrInvalid
+	}
+	if err := validate(&input); err != nil {
+		return Character{}, err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Character{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	before, err := scan(tx.QueryRow(ctx, `SELECT `+characterColumns+` FROM characters WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND status='ACTIVE' FOR UPDATE`, id, clientID, workspaceID))
+	if err != nil {
+		return Character{}, err
+	}
+	if before.Version != input.Version {
+		return Character{}, ErrConflict
+	}
+	item, err := scan(tx.QueryRow(ctx, `UPDATE characters SET name=$4,provider=$5,provider_asset_id=$6,character_type=$7::character_type,gender_presentation=$8,approximate_age_range=$9,appearance_description=$10,wardrobe=$11,gesture_style=$12,default_role=$13,supported_languages=$14,consent_status=$15::consent_status,preview_asset_id=$16,version=version+1,updated_by=$17,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND version=$18 AND ($16::uuid IS NULL OR EXISTS(SELECT 1 FROM media_assets WHERE id=$16 AND client_id=$2 AND workspace_id=$3 AND asset_type IN('IMAGE','LOGO') AND deleted_at IS NULL)) RETURNING `+characterColumns, id, clientID, workspaceID, input.Name, input.Provider, input.ProviderAssetID, input.CharacterType, input.GenderPresentation, input.ApproximateAgeRange, input.AppearanceDescription, input.Wardrobe, input.GestureStyle, input.DefaultRole, input.SupportedLanguages, input.ConsentStatus, input.PreviewAssetID, actor.UserID, input.Version))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Character{}, ErrConflict
+	}
+	if err != nil {
+		return Character{}, err
+	}
+	if _, err = tx.Exec(ctx, `WITH affected AS (
+		SELECT cc.campaign_id FROM campaign_characters cc JOIN campaigns c ON c.id=cc.campaign_id
+		WHERE cc.character_id=$1 AND c.client_id=$2 AND c.workspace_id=$3
+	), changed AS (
+		UPDATE approvals a SET invalidated_at=now(),invalidation_reason='Character profile changed'
+		FROM affected x WHERE a.campaign_id=x.campaign_id AND a.entity_type IN('SCRIPT','SCENE') AND a.invalidated_at IS NULL
+		RETURNING a.id,a.entity_version,a.entity_hash
+	) INSERT INTO approval_events(approval_id,event_type,actor_id,entity_version,entity_hash,notes)
+	SELECT id,'INVALIDATED',$4,entity_version,entity_hash,'Character profile changed' FROM changed`, id, clientID, workspaceID, actor.UserID); err != nil {
+		return Character{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE scripts s SET status='DRAFT',approved_at=NULL,approved_by=NULL,version=s.version+1,updated_by=$4,updated_at=now() FROM campaign_characters cc JOIN campaigns c ON c.id=cc.campaign_id WHERE cc.character_id=$1 AND s.campaign_id=cc.campaign_id AND c.client_id=$2 AND c.workspace_id=$3 AND s.status='APPROVED'`, id, clientID, workspaceID, actor.UserID); err != nil {
+		return Character{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE scenes s SET status='DRAFT',approved_at=NULL,approved_by=NULL,version=s.version+1,updated_by=$4,updated_at=now() FROM campaign_characters cc JOIN campaigns c ON c.id=cc.campaign_id WHERE cc.character_id=$1 AND s.campaign_id=cc.campaign_id AND c.client_id=$2 AND c.workspace_id=$3 AND s.status='APPROVED'`, id, clientID, workspaceID, actor.UserID); err != nil {
+		return Character{}, err
+	}
+	if err = audit.Record(ctx, db.New(tx), audit.Event{ActorID: uuid.NullUUID{UUID: actor.UserID, Valid: true}, Action: "character.updated", EntityType: "character", EntityID: uuid.NullUUID{UUID: id, Valid: true}, ClientID: uuid.NullUUID{UUID: clientID, Valid: true}, WorkspaceID: uuid.NullUUID{UUID: workspaceID, Valid: true}, RequestID: metadata.RequestID, IPAddress: metadata.IPAddress, UserAgent: metadata.UserAgent, Outcome: "SUCCESS", Before: before, After: item}); err != nil {
+		return Character{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Character{}, err
+	}
+	return item, nil
 }
 
 func (s *Service) Select(ctx context.Context, clientID, workspaceID, campaignID, primaryID, listenerID, actorID uuid.UUID) (Selection, error) {

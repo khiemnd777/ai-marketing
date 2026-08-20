@@ -22,6 +22,7 @@ import (
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/audit"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/gen/db"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/telemetry"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/providerconfigs"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/storage"
 )
 
@@ -53,9 +54,12 @@ func (e *Enqueuer) EnqueueMediaMetadata(ctx context.Context, tx pgx.Tx, assetID,
 
 type MediaMetadataWorker struct {
 	river.WorkerDefaults[MediaMetadataArgs]
-	Pool    *pgxpool.Pool
-	Store   storage.ObjectStore
-	TempDir string
+	Pool     *pgxpool.Pool
+	Store    storage.ObjectStore
+	TempDir  string
+	Resolver interface {
+		Load(context.Context, uuid.UUID) (providerconfigs.Bundle, error)
+	}
 }
 
 type mediaProbe struct {
@@ -67,7 +71,19 @@ type mediaProbe struct {
 }
 
 func (w *MediaMetadataWorker) Work(ctx context.Context, job *river.Job[MediaMetadataArgs]) error {
-	if w.Store == nil {
+	store := w.Store
+	if w.Resolver != nil {
+		bundle, resolveErr := w.Resolver.Load(ctx, job.Args.ClientID)
+		if resolveErr != nil {
+			return river.JobCancel(errors.New("client provider configuration is unavailable"))
+		}
+		resolvedStore, storeErr := storage.NewS3Store(ctx, bundle.R2)
+		if storeErr != nil {
+			return river.JobCancel(storeErr)
+		}
+		store = resolvedStore
+	}
+	if store == nil {
 		return errors.New("media metadata worker requires object storage")
 	}
 	var storageKey, mimeType string
@@ -87,7 +103,7 @@ func (w *MediaMetadataWorker) Work(ctx context.Context, job *river.Job[MediaMeta
 	}
 	defer os.RemoveAll(dir)
 	input := filepath.Join(dir, "original"+extensionForMIME(mimeType))
-	if err := w.download(ctx, storageKey, input); err != nil {
+	if err := w.download(ctx, store, storageKey, input); err != nil {
 		return err
 	}
 
@@ -114,7 +130,7 @@ func (w *MediaMetadataWorker) Work(ctx context.Context, job *river.Job[MediaMeta
 			return err
 		}
 		thumbnailKey = storage.ThumbnailObjectKey(job.Args.WorkspaceID, job.Args.AssetID)
-		err = w.Store.Put(ctx, thumbnailKey, "image/jpeg", stat.Size(), file, map[string]string{"source-asset-id": job.Args.AssetID.String()})
+		err = store.Put(ctx, thumbnailKey, "image/jpeg", stat.Size(), file, map[string]string{"source-asset-id": job.Args.AssetID.String()})
 		closeErr := file.Close()
 		if err != nil {
 			return err
@@ -143,8 +159,8 @@ func (w *MediaMetadataWorker) Work(ctx context.Context, job *river.Job[MediaMeta
 	return tx.Commit(ctx)
 }
 
-func (w *MediaMetadataWorker) download(ctx context.Context, key, destination string) error {
-	body, err := w.Store.Get(ctx, key)
+func (w *MediaMetadataWorker) download(ctx context.Context, store storage.ObjectStore, key, destination string) error {
+	body, err := store.Get(ctx, key)
 	if err != nil {
 		return err
 	}

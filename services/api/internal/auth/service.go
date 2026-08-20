@@ -33,6 +33,7 @@ var (
 	ErrBootstrapClosed    = errors.New("admin bootstrap is no longer available")
 	ErrBootstrapInput     = errors.New("invalid admin bootstrap input")
 	ErrEmailInUse         = errors.New("email is already in use")
+	ErrInvalidProfile     = errors.New("invalid profile input")
 )
 
 type ClientMetadata struct {
@@ -66,6 +67,12 @@ type BootstrapInput struct {
 	Email       string
 	DisplayName string
 	Password    string
+}
+
+type UpdateProfileInput struct {
+	Email       string
+	DisplayName string
+	Version     int64
 }
 
 type SessionInfo struct {
@@ -370,6 +377,62 @@ func (s *Service) ChangePassword(ctx context.Context, principal Principal, curre
 		return fmt.Errorf("write password audit: %w", err)
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *Service) UpdateProfile(ctx context.Context, principal Principal, input UpdateProfileInput, metadata ClientMetadata) (Principal, error) {
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	if _, err := mail.ParseAddress(input.Email); err != nil || len(input.Email) > 320 || len(input.DisplayName) < 2 || len(input.DisplayName) > 120 || input.Version < 1 {
+		return Principal{}, ErrInvalidProfile
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Principal{}, fmt.Errorf("begin profile update transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	queries := s.queries.WithTx(tx)
+	current, err := queries.GetInternalUserByIDForUpdate(ctx, principal.UserID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Principal{}, ErrUnauthenticated
+	}
+	if err != nil {
+		return Principal{}, fmt.Errorf("load profile update target: %w", err)
+	}
+	if current.Version != input.Version || principal.Version != input.Version {
+		return Principal{}, ErrConflict
+	}
+	updated, err := queries.UpdateInternalUserProfileVersioned(ctx, db.UpdateInternalUserProfileVersionedParams{
+		Email: input.Email, DisplayName: input.DisplayName, Role: current.Role, ID: current.ID, Version: current.Version,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Principal{}, ErrConflict
+	}
+	if err != nil {
+		var pgError *pgconn.PgError
+		if errors.As(err, &pgError) && pgError.Code == "23505" {
+			return Principal{}, ErrEmailInUse
+		}
+		return Principal{}, fmt.Errorf("update own profile: %w", err)
+	}
+	actor := uuid.NullUUID{UUID: principal.UserID, Valid: true}
+	if err = audit.Record(ctx, queries, audit.Event{
+		ActorID: actor, Action: "auth.profile.updated", EntityType: "internal_user", EntityID: actor,
+		RequestID: metadata.RequestID, IPAddress: metadata.IPAddress, UserAgent: truncate(metadata.UserAgent, 1000), Outcome: "SUCCESS",
+		Before: map[string]any{"email": current.Email, "displayName": current.DisplayName, "version": current.Version},
+		After:  map[string]any{"email": updated.Email, "displayName": updated.DisplayName, "version": updated.Version},
+	}); err != nil {
+		return Principal{}, fmt.Errorf("write profile update audit: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Principal{}, fmt.Errorf("commit profile update: %w", err)
+	}
+	principal.Email = updated.Email
+	principal.DisplayName = updated.DisplayName
+	principal.Role = updated.Role
+	principal.RequiresPasswordChange = updated.RequiresPasswordChange
+	principal.Version = updated.Version
+	principal.UpdatedAt = updated.UpdatedAt.Time
+	return principal, nil
 }
 
 func (s *Service) ListSessions(ctx context.Context, principal Principal) ([]SessionInfo, error) {

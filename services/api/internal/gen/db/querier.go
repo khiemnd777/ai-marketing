@@ -18,13 +18,16 @@ type Querier interface {
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	DeleteExpiredSessions(ctx context.Context) (int64, error)
 	GetActiveSessionByTokenHash(ctx context.Context, tokenHash []byte) (GetActiveSessionByTokenHashRow, error)
+	GetClientProviderProfile(ctx context.Context, clientID uuid.UUID) (ClientProviderProfile, error)
 	GetInternalUserByEmail(ctx context.Context, email string) (InternalUser, error)
 	GetInternalUserByID(ctx context.Context, id uuid.UUID) (InternalUser, error)
 	GetInternalUserByIDForUpdate(ctx context.Context, id uuid.UUID) (InternalUser, error)
+	GetProviderConfiguration(ctx context.Context, arg GetProviderConfigurationParams) (ProviderConfiguration, error)
 	InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) (AuditLog, error)
 	ListActiveUserSessions(ctx context.Context, internalUserID uuid.UUID) ([]ListActiveUserSessionsRow, error)
 	ListAuditLogs(ctx context.Context, arg ListAuditLogsParams) ([]AuditLog, error)
 	ListInternalUsers(ctx context.Context, arg ListInternalUsersParams) ([]InternalUser, error)
+	ListProviderConfigurationsByClient(ctx context.Context, clientID uuid.UUID) ([]ProviderConfiguration, error)
 	LockInternalAdminUsers(ctx context.Context) ([]uuid.UUID, error)
 	LockInternalUsersForAdminBootstrap(ctx context.Context) error
 	RecordFailedLogin(ctx context.Context, arg RecordFailedLoginParams) error
@@ -36,6 +39,9 @@ type Querier interface {
 	SetInternalUserStatusVersioned(ctx context.Context, arg SetInternalUserStatusVersionedParams) (InternalUser, error)
 	TouchSession(ctx context.Context, id uuid.UUID) error
 	UpdateInternalUserPasswordVersioned(ctx context.Context, arg UpdateInternalUserPasswordVersionedParams) (InternalUser, error)
+	UpdateInternalUserProfileVersioned(ctx context.Context, arg UpdateInternalUserProfileVersionedParams) (InternalUser, error)
+	UpsertClientProviderProfile(ctx context.Context, arg UpsertClientProviderProfileParams) (ClientProviderProfile, error)
+	UpsertProviderConfiguration(ctx context.Context, arg UpsertProviderConfigurationParams) (ProviderConfiguration, error)
 }
 
 var _ Querier = (*Queries)(nil)

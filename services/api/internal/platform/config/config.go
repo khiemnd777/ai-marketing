@@ -88,35 +88,7 @@ type OTLPConfig struct {
 }
 
 func Load() (Config, error) {
-	openAITimeout, err := durationSeconds("OPENAI_TIMEOUT_SECONDS", 60)
-	if err != nil {
-		return Config{}, err
-	}
 	sessionTTL, err := durationHours("SESSION_TTL_HOURS", 12)
-	if err != nil {
-		return Config{}, err
-	}
-	openAIInputPrice, err := nonNegativeFloat("OPENAI_INPUT_USD_PER_1M", 0)
-	if err != nil {
-		return Config{}, err
-	}
-	openAIOutputPrice, err := nonNegativeFloat("OPENAI_OUTPUT_USD_PER_1M", 0)
-	if err != nil {
-		return Config{}, err
-	}
-	seedancePrice, err := nonNegativeFloat("SEEDANCE_USD_PER_SECOND", 0)
-	if err != nil {
-		return Config{}, err
-	}
-	seedanceTimeout, err := durationSeconds("SEEDANCE_HTTP_TIMEOUT_SECONDS", 30)
-	if err != nil {
-		return Config{}, err
-	}
-	seedancePollInterval, err := durationSeconds("SEEDANCE_POLL_INTERVAL_SECONDS", 15)
-	if err != nil {
-		return Config{}, err
-	}
-	seedanceTaskTimeout, err := durationSeconds("SEEDANCE_TASK_TIMEOUT_SECONDS", 1800)
 	if err != nil {
 		return Config{}, err
 	}
@@ -128,52 +100,10 @@ func Load() (Config, error) {
 		DatabaseURL:   strings.TrimSpace(os.Getenv("DATABASE_URL")),
 		VerticalsDir:  envOr("VERTICALS_DIR", "../../verticals"),
 		WorkerTempDir: envOr("WORKER_TEMP_DIR", "/tmp/studio-worker"),
-		DemoMode:      boolEnv("DEMO_MODE", false),
 		LogLevel:      envOr("LOG_LEVEL", "info"),
 		SessionTTL:    sessionTTL,
-		OpenAI: OpenAIConfig{
-			APIKey:             strings.TrimSpace(os.Getenv("OPENAI_API_KEY")),
-			BaseURL:            envOr("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-			Model:              envOr("OPENAI_MODEL", "gpt-5.6-luna"),
-			TranscriptionModel: envOr("OPENAI_TRANSCRIPTION_MODEL", "gpt-4o-mini-transcribe"),
-			ReasoningEffort:    envOr("OPENAI_REASONING_EFFORT", "medium"),
-			Timeout:            openAITimeout,
-			InputUSDPer1M:      openAIInputPrice,
-			OutputUSDPer1M:     openAIOutputPrice,
-		},
-		Seedance: SeedanceConfig{
-			APIKey:        strings.TrimSpace(os.Getenv("BYTEPLUS_MODELARK_API_KEY")),
-			BaseURL:       envOr("SEEDANCE_BASE_URL", "https://ark.ap-southeast.bytepluses.com/api"),
-			Model:         envOr("SEEDANCE_MODEL", "dreamina-seedance-2-0-260128"),
-			APIVersion:    envOr("SEEDANCE_API_VERSION", "v3"),
-			Resolution:    envOr("SEEDANCE_RESOLUTION", "720p"),
-			AspectRatio:   envOr("SEEDANCE_DEFAULT_RATIO", "9:16"),
-			WebhookSecret: strings.TrimSpace(os.Getenv("SEEDANCE_WEBHOOK_SECRET")),
-			CallbackURL:   strings.TrimSpace(os.Getenv("SEEDANCE_CALLBACK_URL")),
-			Timeout:       seedanceTimeout,
-			PollInterval:  seedancePollInterval,
-			TaskTimeout:   seedanceTaskTimeout,
-			USDPerSecond:  seedancePrice,
-		},
-		R2: R2Config{
-			AccountID:       strings.TrimSpace(os.Getenv("R2_ACCOUNT_ID")),
-			AccessKeyID:     strings.TrimSpace(os.Getenv("R2_ACCESS_KEY_ID")),
-			SecretAccessKey: strings.TrimSpace(os.Getenv("R2_SECRET_ACCESS_KEY")),
-			Bucket:          strings.TrimSpace(os.Getenv("R2_BUCKET")),
-			Endpoint:        strings.TrimSpace(os.Getenv("R2_ENDPOINT")),
-			PublicBaseURL:   strings.TrimSpace(os.Getenv("R2_PUBLIC_BASE_URL")),
-		},
-		Meta: MetaConfig{
-			AppID:         strings.TrimSpace(os.Getenv("META_APP_ID")),
-			AppSecret:     strings.TrimSpace(os.Getenv("META_APP_SECRET")),
-			APIVersion:    strings.TrimSpace(os.Getenv("META_GRAPH_API_VERSION")),
-			RedirectURL:   strings.TrimSpace(os.Getenv("META_REDIRECT_URL")),
-			GraphBaseURL:  envOr("META_GRAPH_BASE_URL", "https://graph.facebook.com"),
-			DialogBaseURL: envOr("META_DIALOG_BASE_URL", "https://www.facebook.com"),
-		},
 		Renderer: RendererConfig{
-			BaseURL:      envOr("RENDERER_BASE_URL", "http://renderer:8090"),
-			SharedSecret: strings.TrimSpace(os.Getenv("RENDERER_SHARED_SECRET")),
+			SharedSecret: strings.TrimSpace(os.Getenv("RENDERER_INTERNAL_AUTH_SECRET")),
 			TempDir:      envOr("RENDER_TEMP_DIR", "/tmp/studio-renderer"),
 		},
 		OTLP: OTLPConfig{Endpoint: strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))},

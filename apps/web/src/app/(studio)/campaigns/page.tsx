@@ -4,12 +4,13 @@ import type { components } from "@studio/api-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Clapperboard, Copy, Plus, Search } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { usePermissions } from "@/components/auth-context";
+import { useStudioScope } from "@/components/studio-scope";
 import { Badge, Button, Card, Field, PageHeader, SkeletonRows, StatePanel, inputClass, textareaClass } from "@/components/ui";
 import { api } from "@/lib/api";
 import { apiError, newIdempotencyKey } from "@/lib/problem";
+import { studioRoutes } from "@/lib/studio-routes";
 
 type CampaignInput = components["schemas"]["CampaignInput"];
 const initial: CampaignInput = { brandId: "", productId: "", name: "", objective: "PRODUCT_INTRODUCTION", targetAudience: "Khách du lịch thường xuyên", market: "Việt Nam", country: "VN", language: "vi", socialPlatformTargets: ["FACEBOOK", "INSTAGRAM"], videoFormat: "INTERVIEW_REVIEW", durationSeconds: 30, aspectRatio: "9:16", tone: "Tin cậy, gần gũi", offer: "", cta: "Tìm hiểu ngay", changeSummary: "Brief đầu tiên" };
@@ -18,9 +19,7 @@ export default function CampaignsPage() { return <Suspense fallback={<SkeletonRo
 
 function CampaignsContent() {
   const { canOperate } = usePermissions();
-  const query = useSearchParams();
-  const clientId = query.get("clientId") ?? "";
-  const workspaceId = query.get("workspaceId") ?? "";
+  const { clientId, workspaceId } = useStudioScope();
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [show, setShow] = useState(false);
@@ -52,6 +51,6 @@ function CampaignsContent() {
       <Field label="Tiền tệ"><input className={inputClass} maxLength={3} value={form.budgetCurrency ?? ""} onChange={(e) => change("budgetCurrency", e.target.value ? e.target.value.toUpperCase() : null)} /></Field>
     </div>{create.error ? <p className="mt-4 text-sm font-semibold text-[var(--coral)]">{create.error.message}</p> : null}<div className="mt-5 flex gap-3"><Button disabled={create.isPending || form.name.length < 2 || !form.brandId || !form.productId} onClick={() => create.mutate()}>{create.isPending ? "Đang tạo…" : "Tạo brief"}</Button><Button className="bg-transparent text-[var(--ink)] ring-1 ring-[var(--line)]" onClick={() => setShow(false)}>Hủy</Button></div></Card> : null}
     <div className="mb-5 flex items-center gap-3 rounded-2xl border border-[var(--line)] bg-white px-4"><Search className="size-4 text-[var(--muted)]" /><input aria-label="Tìm campaign" className="min-h-11 w-full bg-transparent text-sm outline-none" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Tên campaign" /></div>
-    {campaigns.isLoading ? <SkeletonRows /> : campaigns.error ? <StatePanel title="Không thể tải campaign" tone="danger">{campaigns.error.message}</StatePanel> : campaigns.data?.items.length === 0 ? <StatePanel title="Chưa có campaign">Tạo brief đầu tiên để bắt đầu concept và nội dung.</StatePanel> : <div className="grid gap-4 md:grid-cols-2">{campaigns.data?.items.map((item) => <Card key={item.id} className="flex h-full gap-4 p-5"><span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-[#edf0e7]"><Clapperboard className="size-5 text-[var(--moss)]" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Link className="font-serif text-xl font-bold hover:text-[var(--moss)]" href={`/campaigns/${item.id}?clientId=${clientId}&workspaceId=${workspaceId}`}>{item.name}</Link><Badge tone={item.status === "APPROVED" || item.status === "READY_TO_PUBLISH" ? "good" : "warn"}>{item.status}</Badge></div><p className="mt-2 text-sm text-[var(--muted)]">{item.videoFormat} · {item.durationSeconds}s · {item.language}</p></div>{canOperate ? <button className="self-start rounded-full p-2 text-[var(--muted)] hover:bg-[#edf0e7]" aria-label="Nhân bản" disabled={duplicate.isPending} onClick={() => duplicate.mutate(item)}><Copy className="size-4" /></button> : null}</Card>)}</div>}
+    {campaigns.isLoading ? <SkeletonRows /> : campaigns.error ? <StatePanel title="Không thể tải campaign" tone="danger">{campaigns.error.message}</StatePanel> : campaigns.data?.items.length === 0 ? <StatePanel title="Chưa có campaign">Tạo brief đầu tiên để bắt đầu concept và nội dung.</StatePanel> : <div className="grid gap-4 md:grid-cols-2">{campaigns.data?.items.map((item) => <Card key={item.id} className="flex h-full gap-4 p-5"><span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-[#edf0e7]"><Clapperboard className="size-5 text-[var(--moss)]" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Link className="font-serif text-xl font-bold hover:text-[var(--moss)]" href={studioRoutes.campaign(clientId,workspaceId,item.id)}>{item.name}</Link><Badge tone={item.status === "APPROVED" || item.status === "READY_TO_PUBLISH" ? "good" : "warn"}>{item.status}</Badge></div><p className="mt-2 text-sm text-[var(--muted)]">{item.videoFormat} · {item.durationSeconds}s · {item.language}</p></div>{canOperate ? <button className="self-start rounded-full p-2 text-[var(--muted)] hover:bg-[#edf0e7]" aria-label="Nhân bản" disabled={duplicate.isPending} onClick={() => duplicate.mutate(item)}><Copy className="size-4" /></button> : null}</Card>)}</div>}
   </>;
 }

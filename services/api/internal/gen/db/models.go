@@ -995,6 +995,51 @@ func (ns NullPlanningContentStatus) Value() (driver.Value, error) {
 	return string(ns.PlanningContentStatus), nil
 }
 
+type ProviderKind string
+
+const (
+	ProviderKindOPENAI   ProviderKind = "OPENAI"
+	ProviderKindSEEDANCE ProviderKind = "SEEDANCE"
+	ProviderKindR2       ProviderKind = "R2"
+	ProviderKindMETA     ProviderKind = "META"
+	ProviderKindRENDERER ProviderKind = "RENDERER"
+)
+
+func (e *ProviderKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ProviderKind(s)
+	case string:
+		*e = ProviderKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ProviderKind: %T", src)
+	}
+	return nil
+}
+
+type NullProviderKind struct {
+	ProviderKind ProviderKind `json:"provider_kind"`
+	Valid        bool         `json:"valid"` // Valid is true if ProviderKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullProviderKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.ProviderKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ProviderKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullProviderKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ProviderKind), nil
+}
+
 type ProviderRequestStatus string
 
 const (
@@ -1929,6 +1974,16 @@ type Client struct {
 	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }
 
+type ClientProviderProfile struct {
+	ClientID  uuid.UUID          `json:"client_id"`
+	DemoMode  bool               `json:"demo_mode"`
+	Version   int64              `json:"version"`
+	CreatedBy uuid.UUID          `json:"created_by"`
+	UpdatedBy uuid.UUID          `json:"updated_by"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt pgtype.Timestamptz `json:"updated_at"`
+}
+
 type CostEstimate struct {
 	ID                    uuid.UUID           `json:"id"`
 	ClientID              uuid.UUID           `json:"client_id"`
@@ -2395,6 +2450,22 @@ type ProductVerticalDatum struct {
 	ValidatedAt   pgtype.Timestamptz `json:"validated_at"`
 	CreatedBy     uuid.UUID          `json:"created_by"`
 	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
+type ProviderConfiguration struct {
+	ID                     uuid.UUID          `json:"id"`
+	ClientID               uuid.UUID          `json:"client_id"`
+	Provider               ProviderKind       `json:"provider"`
+	Enabled                bool               `json:"enabled"`
+	SafeConfig             []byte             `json:"safe_config"`
+	SecretCiphertext       []byte             `json:"secret_ciphertext"`
+	SecretNonce            []byte             `json:"secret_nonce"`
+	ConfiguredSecretFields []string           `json:"configured_secret_fields"`
+	Version                int64              `json:"version"`
+	CreatedBy              uuid.UUID          `json:"created_by"`
+	UpdatedBy              uuid.UUID          `json:"updated_by"`
+	CreatedAt              pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
 }
 
 type ProviderOutput struct {

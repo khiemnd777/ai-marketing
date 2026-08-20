@@ -2,10 +2,10 @@
 
 import type { components } from "@studio/api-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Laptop, ShieldCheck, Smartphone } from "lucide-react";
-import Link from "next/link";
+import { Laptop, Pencil, Save, ShieldCheck, Smartphone } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { Badge, Button, Card, PageHeader, SkeletonRows, StatePanel } from "@/components/ui";
+import { useState } from "react";
+import { Badge, Button, Card, Field, PageHeader, SkeletonRows, StatePanel, inputClass } from "@/components/ui";
 import { useCurrentUser } from "@/components/auth-context";
 import { api } from "@/lib/api";
 import { apiError } from "@/lib/problem";
@@ -22,6 +22,8 @@ export default function AccountPage() {
   const user = useCurrentUser();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [profile, setProfile] = useState({ displayName: user.displayName, email: user.email });
   const sessions = useQuery({
     queryKey: ["auth-sessions"],
     queryFn: async () => {
@@ -46,10 +48,15 @@ export default function AccountPage() {
       await queryClient.invalidateQueries({ queryKey: ["auth-sessions"] });
     },
   });
+  const updateProfile = useMutation({
+    mutationFn: async () => { const { data, error } = await api.PUT("/auth/me", { body: { ...profile, version: user.version } }); if (error || !data) throw apiError(error, "Không thể cập nhật tài khoản."); return data; },
+    onSuccess: () => { setEditing(false); router.refresh(); },
+  });
 
   return (
     <>
-      <PageHeader eyebrow="Bảo mật" title="Tài khoản của tôi" description="Kiểm tra thông tin vai trò, đổi mật khẩu và thu hồi những phiên đăng nhập không còn sử dụng." action={<Link href="/account/password"><Button><ShieldCheck className="mr-2 size-4" />Đổi mật khẩu</Button></Link>} />
+      <PageHeader eyebrow="Bảo mật" title="Tài khoản của tôi" description="Cập nhật thông tin cá nhân, đổi mật khẩu và thu hồi những phiên đăng nhập không còn sử dụng." action={<div className="flex flex-wrap gap-2"><Button className="bg-transparent text-[var(--ink)] ring-1 ring-[var(--line)] hover:bg-white" onClick={()=>setEditing(value=>!value)}><Pencil className="mr-2 size-4"/>{editing?"Đóng chỉnh sửa":"Chỉnh sửa"}</Button><Button onClick={()=>router.push("/account/password?returnUrl=%2Faccount")}><ShieldCheck className="mr-2 size-4" />Đổi mật khẩu</Button></div>} />
+      {editing?<Card className="mb-7 p-6"><h2 className="font-serif text-xl font-bold">Chỉnh sửa hồ sơ</h2><div className="mt-5 grid gap-4 md:grid-cols-2"><Field label="Họ tên"><input className={inputClass} value={profile.displayName} onChange={event=>setProfile({...profile,displayName:event.target.value})}/></Field><Field label="Email"><input className={inputClass} type="email" value={profile.email} onChange={event=>setProfile({...profile,email:event.target.value})}/></Field></div>{updateProfile.error?<p role="alert" className="mt-4 text-sm font-semibold text-[var(--coral)]">{updateProfile.error.message}</p>:null}<div className="mt-5 flex gap-3"><Button disabled={updateProfile.isPending||profile.displayName.trim().length<2||!profile.email.includes("@")} onClick={()=>updateProfile.mutate()}><Save className="mr-2 size-4"/>{updateProfile.isPending?"Đang lưu…":"Lưu thay đổi"}</Button><Button className="bg-transparent text-[var(--ink)] ring-1 ring-[var(--line)] hover:bg-white" onClick={()=>{setEditing(false);setProfile({displayName:user.displayName,email:user.email})}}>Hủy</Button></div></Card>:null}
       <Card className="mb-7 grid gap-5 p-6 md:grid-cols-3">
         <div><p className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">Họ tên</p><p className="mt-2 font-serif text-xl font-bold">{user.displayName}</p></div>
         <div><p className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">Email</p><p className="mt-2 text-sm font-semibold">{user.email}</p></div>

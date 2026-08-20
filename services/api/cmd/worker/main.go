@@ -12,10 +12,8 @@ import (
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 
-	studioai "github.com/internal/ai-product-marketing-studio/services/api/internal/ai"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/gen/db"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/jobs"
-	metaprovider "github.com/internal/ai-product-marketing-studio/services/api/internal/meta"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/metaads"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/planning"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/config"
@@ -23,9 +21,9 @@ import (
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/database"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/logging"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/telemetry"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/providerconfigs"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/publishing"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/rendering"
-	"github.com/internal/ai-product-marketing-studio/services/api/internal/storage"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/video"
 )
 
@@ -62,52 +60,26 @@ func run() error {
 
 	workers := river.NewWorkers()
 	river.AddWorker(workers, &jobs.MaintenanceWorker{Queries: db.New(pool), Pool: pool})
-	objectStore, err := storage.NewS3Store(ctx, cfg.R2)
-	if err != nil {
-		return fmt.Errorf("configure worker object storage: %w", err)
-	}
-	river.AddWorker(workers, &jobs.MediaMetadataWorker{Pool: pool, Store: objectStore, TempDir: cfg.WorkerTempDir})
-	llmProvider, err := studioai.NewProvider(cfg)
-	if err != nil {
-		return fmt.Errorf("configure AI planning provider: %w", err)
-	}
-	river.AddWorker(workers, &planning.Worker{Pool: pool, Provider: llmProvider, Config: cfg})
-	jobEnqueuer, err := jobs.NewEnqueuer(pool)
-	if err != nil {
-		return err
-	}
-	videoProvider, err := video.NewProvider(cfg.DemoMode, cfg.Seedance)
-	if err != nil {
-		return fmt.Errorf("configure Seedance provider: %w", err)
-	}
-	transcriber, err := video.NewTranscriber(cfg.DemoMode, cfg.OpenAI)
-	if err != nil {
-		return fmt.Errorf("configure transcription provider: %w", err)
-	}
-	river.AddWorker(workers, &video.SubmitWorker{Pool: pool, Provider: videoProvider, Enqueuer: jobEnqueuer, Store: objectStore, Config: cfg})
-	river.AddWorker(workers, &video.StatusWorker{Pool: pool, Provider: videoProvider, Enqueuer: jobEnqueuer, Config: cfg})
-	river.AddWorker(workers, &video.DownloadWorker{Pool: pool, Store: objectStore, Enqueuer: jobEnqueuer, Config: cfg})
-	river.AddWorker(workers, &video.TranscriptionWorker{Pool: pool, Store: objectStore, Transcriber: transcriber, Enqueuer: jobEnqueuer})
-	river.AddWorker(workers, &video.QualityCheckWorker{Pool: pool})
-	rendererClient, err := rendering.NewRendererClient(cfg.Renderer)
-	if err != nil {
-		return fmt.Errorf("configure final renderer: %w", err)
-	}
-	river.AddWorker(workers, &rendering.Worker{Pool: pool, Store: objectStore, Renderer: rendererClient})
 	secretCipher, err := cryptox.New(cfg.EncryptionKey)
 	if err != nil {
 		return err
 	}
-	var metaProvider metaprovider.Provider = metaprovider.NewUnavailableProvider()
-	if cfg.DemoMode || cfg.Meta.Validate() == nil {
-		metaProvider, err = metaprovider.NewProvider(cfg.DemoMode, cfg.Meta)
-		if err != nil {
-			return fmt.Errorf("configure Meta provider: %w", err)
-		}
+	providerResolver := providerconfigs.NewService(pool, secretCipher)
+	river.AddWorker(workers, &jobs.MediaMetadataWorker{Pool: pool, Resolver: providerResolver, TempDir: cfg.WorkerTempDir})
+	river.AddWorker(workers, &planning.Worker{Pool: pool, Resolver: providerResolver})
+	jobEnqueuer, err := jobs.NewEnqueuer(pool)
+	if err != nil {
+		return err
 	}
-	river.AddWorker(workers, &publishing.Worker{Pool: pool, Store: objectStore, Cipher: secretCipher, Provider: metaProvider})
-	river.AddWorker(workers, &metaads.ActionWorker{Pool: pool, Cipher: secretCipher, Provider: metaProvider, Enqueuer: jobEnqueuer})
-	river.AddWorker(workers, &metaads.MetricsWorker{Pool: pool, Cipher: secretCipher, Provider: metaProvider})
+	river.AddWorker(workers, &video.SubmitWorker{Pool: pool, Resolver: providerResolver, Enqueuer: jobEnqueuer})
+	river.AddWorker(workers, &video.StatusWorker{Pool: pool, Resolver: providerResolver, Enqueuer: jobEnqueuer})
+	river.AddWorker(workers, &video.DownloadWorker{Pool: pool, Resolver: providerResolver, Enqueuer: jobEnqueuer, Config: cfg})
+	river.AddWorker(workers, &video.TranscriptionWorker{Pool: pool, Resolver: providerResolver, Enqueuer: jobEnqueuer})
+	river.AddWorker(workers, &video.QualityCheckWorker{Pool: pool})
+	river.AddWorker(workers, &rendering.Worker{Pool: pool, Resolver: providerResolver, RendererSecret: cfg.Renderer.SharedSecret})
+	river.AddWorker(workers, &publishing.Worker{Pool: pool, Resolver: providerResolver, Cipher: secretCipher})
+	river.AddWorker(workers, &metaads.ActionWorker{Pool: pool, Resolver: providerResolver, Cipher: secretCipher, Enqueuer: jobEnqueuer})
+	river.AddWorker(workers, &metaads.MetricsWorker{Pool: pool, Resolver: providerResolver, Cipher: secretCipher})
 	queues := make(map[string]river.QueueConfig, len(jobs.RequiredQueues))
 	for _, queue := range jobs.RequiredQueues {
 		queues[queue] = river.QueueConfig{MaxWorkers: workerCount(queue)}
@@ -133,7 +105,7 @@ func run() error {
 	if err := client.Start(ctx); err != nil {
 		return fmt.Errorf("start River client: %w", err)
 	}
-	logger.Info("River worker started", "queues", jobs.RequiredQueues, "demo_mode", cfg.DemoMode)
+	logger.Info("River worker started", "queues", jobs.RequiredQueues)
 	<-ctx.Done()
 	shutdownContext, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

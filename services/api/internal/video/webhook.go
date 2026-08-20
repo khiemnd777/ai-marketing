@@ -14,7 +14,15 @@ import (
 )
 
 func (h *Handler) Webhook(c fiber.Ctx) error {
-	secret := h.service.config.Seedance.WebhookSecret
+	clientID, parseErr := uuid.Parse(c.Query("clientId"))
+	if parseErr != nil {
+		return c.SendStatus(fiber.StatusUnauthorized)
+	}
+	cfg, configErr := h.service.effectiveConfig(c.Context(), clientID)
+	if configErr != nil {
+		return c.SendStatus(fiber.StatusUnauthorized)
+	}
+	secret := cfg.Seedance.WebhookSecret
 	supplied := c.Query("token")
 	if secret == "" || len(secret) != len(supplied) || subtle.ConstantTimeCompare([]byte(secret), []byte(supplied)) != 1 {
 		return c.SendStatus(fiber.StatusUnauthorized)
@@ -28,7 +36,7 @@ func (h *Handler) Webhook(c fiber.Ctx) error {
 	if err != nil {
 		return c.SendStatus(fiber.StatusBadRequest)
 	}
-	if err = h.service.ProcessWebhook(c.Context(), task, payload, requestID); err != nil {
+	if err = h.service.ProcessWebhook(c.Context(), clientID, task, payload, requestID); err != nil {
 		if errors.Is(err, ErrNotFound) {
 			// A valid provider callback may race the transaction that persists its
 			// task ID. Polling remains the authoritative fallback.
@@ -39,7 +47,7 @@ func (h *Handler) Webhook(c fiber.Ctx) error {
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
-func (s *Service) ProcessWebhook(ctx context.Context, task Task, raw []byte, requestID string) error {
+func (s *Service) ProcessWebhook(ctx context.Context, clientID uuid.UUID, task Task, raw []byte, requestID string) error {
 	payloadHash := sha256.Sum256(raw)
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -56,7 +64,7 @@ func (s *Service) ProcessWebhook(ctx context.Context, task Task, raw []byte, req
 	}
 	var generationID uuid.UUID
 	var current string
-	err = tx.QueryRow(ctx, `SELECT id,status::text FROM scene_generation_tasks WHERE provider='byteplus-modelark' AND provider_task_id=$1 FOR UPDATE`, task.ID).Scan(&generationID, &current)
+	err = tx.QueryRow(ctx, `SELECT id,status::text FROM scene_generation_tasks WHERE client_id=$1 AND provider='byteplus-modelark' AND provider_task_id=$2 FOR UPDATE`, clientID, task.ID).Scan(&generationID, &current)
 	if errors.Is(err, pgx.ErrNoRows) {
 		_, _ = tx.Exec(ctx, `UPDATE provider_webhook_deliveries SET status_code=202,processing_error='Generation task ID is not visible yet',processed_at=now() WHERE id=$1`, deliveryID)
 		if commitErr := tx.Commit(ctx); commitErr != nil {

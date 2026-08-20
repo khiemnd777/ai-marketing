@@ -97,6 +97,22 @@ func (h *Handler) List(c fiber.Ctx) error {
 	}
 	return c.JSON(fiber.Map{"items": items})
 }
+func (h *Handler) Update(c fiber.Ctx) error {
+	a, b, p, id, _, e := ids(c, true, false)
+	if e != nil {
+		return adError(c, e)
+	}
+	var input CampaignInput
+	if c.Bind().Body(&input) != nil {
+		return adError(c, ErrInvalid)
+	}
+	principal, _ := auth.PrincipalFrom(c)
+	item, e := h.service.Update(c.Context(), a, b, p, id, principal, auth.MetadataFrom(c), input)
+	if e != nil {
+		return adError(c, e)
+	}
+	return c.JSON(item)
+}
 func (h *Handler) ReviewCreate(c fiber.Ctx) error {
 	a, b, p, id, _, e := ids(c, true, false)
 	if e != nil {

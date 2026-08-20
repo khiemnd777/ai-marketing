@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -111,36 +112,54 @@ type TranscriptionWorker struct {
 	Store       storage.ObjectStore
 	Transcriber Transcriber
 	Enqueuer    *jobs.Enqueuer
+	Resolver    TenantResolver
 }
 
 func (w *TranscriptionWorker) Work(ctx context.Context, job *river.Job[jobs.TranscriptionArgs]) error {
-	if w.Store == nil || w.Transcriber == nil {
-		return errors.New("transcription worker is not configured")
-	}
+	var clientID uuid.UUID
 	var storageKey, language, expected, provider, model, status string
 	err := w.Pool.QueryRow(ctx, `
-		SELECT v.storage_key,cv.language,sv.dialogue,t.provider,t.model,t.status::text
+		SELECT g.client_id,v.storage_key,cv.language,sv.dialogue,t.provider,t.model,t.status::text
 		FROM scene_generation_tasks g
 		JOIN campaigns c ON c.id=g.campaign_id JOIN campaign_versions cv ON cv.campaign_id=c.id AND cv.version=c.current_version
 		JOIN scene_versions sv ON sv.scene_id=g.scene_id AND sv.version=g.scene_version
 		JOIN media_assets a ON a.id=g.output_asset_id JOIN media_asset_versions v ON v.media_asset_id=a.id AND v.version=a.current_version
 		JOIN scene_transcriptions t ON t.generation_task_id=g.id
-		WHERE g.id=$1`, job.Args.GenerationTaskID).Scan(&storageKey, &language, &expected, &provider, &model, &status)
+		WHERE g.id=$1`, job.Args.GenerationTaskID).Scan(&clientID, &storageKey, &language, &expected, &provider, &model, &status)
 	if errors.Is(err, pgx.ErrNoRows) || status == "SUCCEEDED" {
 		return river.JobCancel(errors.New("transcription is unavailable or complete"))
 	}
 	if err != nil {
 		return err
 	}
+	store, transcriber := w.Store, w.Transcriber
+	if w.Resolver != nil {
+		bundle, resolveErr := w.Resolver.Load(ctx, clientID)
+		if resolveErr != nil {
+			return river.JobCancel(errors.New("client provider configuration is unavailable"))
+		}
+		resolvedStore, storeErr := storage.NewS3Store(ctx, bundle.R2)
+		if storeErr != nil {
+			return river.JobCancel(storeErr)
+		}
+		transcriber, resolveErr = NewTranscriber(bundle.DemoMode, bundle.OpenAI)
+		if resolveErr != nil {
+			return river.JobCancel(resolveErr)
+		}
+		store = resolvedStore
+	}
+	if store == nil || transcriber == nil {
+		return errors.New("transcription worker is not configured")
+	}
 	if _, err = w.Pool.Exec(ctx, `UPDATE scene_transcriptions SET status='PROCESSING',updated_at=now() WHERE generation_task_id=$1 AND status='QUEUED'`, job.Args.GenerationTaskID); err != nil {
 		return err
 	}
-	body, err := w.Store.Get(ctx, storageKey)
+	body, err := store.Get(ctx, storageKey)
 	if err != nil {
 		return err
 	}
 	defer body.Close()
-	result, err := w.Transcriber.Transcribe(ctx, "scene.mp4", body, language)
+	result, err := transcriber.Transcribe(ctx, "scene.mp4", body, language)
 	if err != nil {
 		_, _ = w.Pool.Exec(ctx, `UPDATE scene_transcriptions SET status='FAILED',error_code='transcription_failed',error_message='Scene audio could not be transcribed',updated_at=now() WHERE generation_task_id=$1`, job.Args.GenerationTaskID)
 		return err

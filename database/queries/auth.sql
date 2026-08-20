@@ -45,6 +45,13 @@ SET password_hash = sqlc.arg(password_hash), requires_password_change = sqlc.arg
 WHERE id = sqlc.arg(id) AND version = sqlc.arg(version)
 RETURNING *;
 
+-- name: UpdateInternalUserProfileVersioned :one
+UPDATE internal_users
+SET email = lower(sqlc.arg(email)), display_name = sqlc.arg(display_name), role = sqlc.arg(role),
+    version = version + 1, updated_at = now()
+WHERE id = sqlc.arg(id) AND version = sqlc.arg(version)
+RETURNING *;
+
 -- name: SetInternalUserStatusVersioned :one
 UPDATE internal_users
 SET status = sqlc.arg(status), version = version + 1, updated_at = now()

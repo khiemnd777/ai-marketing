@@ -15,6 +15,7 @@ import (
 
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/meta"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/cryptox"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/providerconfigs"
 )
 
 var (
@@ -93,13 +94,45 @@ type Service struct {
 	cipher     *cryptox.Cipher
 	provider   meta.Provider
 	apiVersion string
+	resolver   interface {
+		Load(context.Context, uuid.UUID) (providerconfigs.Bundle, error)
+	}
 }
 
 func NewService(pool *pgxpool.Pool, cipher *cryptox.Cipher, provider meta.Provider, apiVersion string) *Service {
 	return &Service{pool: pool, cipher: cipher, provider: provider, apiVersion: apiVersion}
 }
 
+func NewTenantService(pool *pgxpool.Pool, cipher *cryptox.Cipher, resolver interface {
+	Load(context.Context, uuid.UUID) (providerconfigs.Bundle, error)
+}) *Service {
+	return &Service{pool: pool, cipher: cipher, resolver: resolver}
+}
+
+func (s *Service) providerFor(ctx context.Context, clientID uuid.UUID) (meta.Provider, string, error) {
+	if s.resolver == nil {
+		return s.provider, s.apiVersion, nil
+	}
+	bundle, err := s.resolver.Load(ctx, clientID)
+	if err != nil {
+		return nil, "", ErrInvalid
+	}
+	provider, err := meta.NewProvider(bundle.DemoMode, bundle.Meta)
+	if err != nil {
+		return nil, "", ErrInvalid
+	}
+	version := bundle.Meta.APIVersion
+	if bundle.DemoMode && version == "" {
+		version = "demo"
+	}
+	return provider, version, nil
+}
+
 func (s *Service) StartOAuth(ctx context.Context, clientID, workspaceID, actorID uuid.UUID) (OAuthStart, error) {
+	provider, _, providerErr := s.providerFor(ctx, clientID)
+	if providerErr != nil {
+		return OAuthStart{}, providerErr
+	}
 	var exists bool
 	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workspaces WHERE id=$1 AND client_id=$2 AND status='ACTIVE')`, workspaceID, clientID).Scan(&exists); err != nil {
 		return OAuthStart{}, err
@@ -116,7 +149,7 @@ func (s *Service) StartOAuth(ctx context.Context, clientID, workspaceID, actorID
 	if _, err := s.pool.Exec(ctx, `INSERT INTO meta_oauth_states(state_hash,actor_id,client_id,workspace_id,expires_at)VALUES($1,$2,$3,$4,now()+interval '10 minutes')`, hex.EncodeToString(hash[:]), actorID, clientID, workspaceID); err != nil {
 		return OAuthStart{}, err
 	}
-	url, err := s.provider.AuthorizationURL(state)
+	url, err := provider.AuthorizationURL(state)
 	if err != nil {
 		return OAuthStart{}, err
 	}
@@ -136,11 +169,15 @@ func (s *Service) Callback(ctx context.Context, state, code string) (CallbackRes
 	} else if err != nil {
 		return CallbackResult{}, err
 	}
-	token, err := s.provider.ExchangeCode(ctx, code)
+	provider, apiVersion, providerErr := s.providerFor(ctx, result.ClientID)
+	if providerErr != nil {
+		return CallbackResult{}, providerErr
+	}
+	token, err := provider.ExchangeCode(ctx, code)
 	if err != nil {
 		return CallbackResult{}, err
 	}
-	discovery, err := s.provider.Discover(ctx, token.AccessToken)
+	discovery, err := provider.Discover(ctx, token.AccessToken)
 	if err != nil {
 		return CallbackResult{}, err
 	}
@@ -162,14 +199,14 @@ func (s *Service) Callback(ctx context.Context, state, code string) (CallbackRes
 	if err != nil {
 		return CallbackResult{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO meta_connections(id,client_id,workspace_id,meta_user_id,display_name,token_ciphertext,token_nonce,token_type,scopes,token_issued_at,token_expires_at,data_access_expires_at,api_version,status,last_validated_at,created_by,updated_by)VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'CONNECTED',now(),$14,$14)`, connectionID, result.ClientID, result.WorkspaceID, token.UserID, token.UserName, ciphertext, nonce, token.TokenType, token.Scopes, token.IssuedAt, token.ExpiresAt, token.DataAccessExpiresAt, s.apiVersion, actorID)
+	_, err = tx.Exec(ctx, `INSERT INTO meta_connections(id,client_id,workspace_id,meta_user_id,display_name,token_ciphertext,token_nonce,token_type,scopes,token_issued_at,token_expires_at,data_access_expires_at,api_version,status,last_validated_at,created_by,updated_by)VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'CONNECTED',now(),$14,$14)`, connectionID, result.ClientID, result.WorkspaceID, token.UserID, token.UserName, ciphertext, nonce, token.TokenType, token.Scopes, token.IssuedAt, token.ExpiresAt, token.DataAccessExpiresAt, apiVersion, actorID)
 	if err != nil {
 		return CallbackResult{}, err
 	}
 	if err = s.persistDiscovery(ctx, tx, connectionID, result.ClientID, result.WorkspaceID, discovery); err != nil {
 		return CallbackResult{}, err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO audit_logs(actor_internal_user_id,action,entity_type,entity_id,client_id,workspace_id,request_id,outcome,metadata)VALUES($1,'meta.connection.oauth_callback','META_CONNECTION',$2,$3,$4,$5,'SUCCESS',$6)`, actorID, connectionID, result.ClientID, result.WorkspaceID, "meta-oauth:"+stateHash[:16], map[string]any{"apiVersion": s.apiVersion, "pages": len(discovery.Pages), "adAccounts": len(discovery.AdAccounts)})
+	_, err = tx.Exec(ctx, `INSERT INTO audit_logs(actor_internal_user_id,action,entity_type,entity_id,client_id,workspace_id,request_id,outcome,metadata)VALUES($1,'meta.connection.oauth_callback','META_CONNECTION',$2,$3,$4,$5,'SUCCESS',$6)`, actorID, connectionID, result.ClientID, result.WorkspaceID, "meta-oauth:"+stateHash[:16], map[string]any{"apiVersion": apiVersion, "pages": len(discovery.Pages), "adAccounts": len(discovery.AdAccounts)})
 	if err != nil {
 		return CallbackResult{}, err
 	}
@@ -180,11 +217,15 @@ func (s *Service) Callback(ctx context.Context, state, code string) (CallbackRes
 }
 
 func (s *Service) Sync(ctx context.Context, clientID, workspaceID uuid.UUID) (Connection, error) {
+	provider, _, providerErr := s.providerFor(ctx, clientID)
+	if providerErr != nil {
+		return Connection{}, providerErr
+	}
 	id, token, err := s.connectionToken(ctx, clientID, workspaceID)
 	if err != nil {
 		return Connection{}, err
 	}
-	discovery, err := s.provider.Discover(ctx, token)
+	discovery, err := provider.Discover(ctx, token)
 	if err != nil {
 		return Connection{}, err
 	}

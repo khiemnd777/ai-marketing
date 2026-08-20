@@ -121,7 +121,7 @@ type ConsoleOverview struct {
 
 func (h *Handler) Overview(c fiber.Ctx) error {
 	ctx := c.Context()
-	out := ConsoleOverview{GeneratedAt: time.Now().UTC(), APIHealth: "ok", Queues: []QueueMetric{}, Jobs: []JobView{}, SeedanceTasks: []StateCount{}, RenderJobs: []StateCount{}, Webhooks: []WebhookView{}, ProviderErrors: []ProviderFailureView{}, CostAnomalies: []NotificationView{}, CostByClient: []CostDimension{}, CostByCampaign: []CostDimension{}, Versions: []VersionView{}, AuditLogs: []AuditView{}, FeatureFlags: []FeatureFlag{}, SafeConfiguration: safeConfiguration(h.config)}
+	out := ConsoleOverview{GeneratedAt: time.Now().UTC(), APIHealth: "ok", Queues: []QueueMetric{}, Jobs: []JobView{}, SeedanceTasks: []StateCount{}, RenderJobs: []StateCount{}, Webhooks: []WebhookView{}, ProviderErrors: []ProviderFailureView{}, CostAnomalies: []NotificationView{}, CostByClient: []CostDimension{}, CostByCampaign: []CostDimension{}, Versions: []VersionView{}, AuditLogs: []AuditView{}, FeatureFlags: []FeatureFlag{}, SafeConfiguration: safeConfiguration(ctx, h.pool, h.config)}
 	rows, err := h.pool.Query(ctx, `SELECT queue,state::text,count(*),COALESCE(EXTRACT(EPOCH FROM(now()-min(CASE WHEN state IN ('available','scheduled','retryable') THEN scheduled_at ELSE created_at END))),0) FROM river_job GROUP BY queue,state ORDER BY queue,state`)
 	if err != nil {
 		return consoleError(c, err)
@@ -352,8 +352,27 @@ func (h *Handler) SetMaintenance(c fiber.Ctx) error {
 func jobView(job *rivertype.JobRow) JobView {
 	return JobView{ID: job.ID, Kind: job.Kind, Queue: job.Queue, State: string(job.State), Attempt: job.Attempt, MaxAttempts: job.MaxAttempts, ScheduledAt: job.ScheduledAt, AttemptedAt: job.AttemptedAt, AgeSeconds: time.Since(job.CreatedAt).Seconds(), Errors: []map[string]any{}}
 }
-func safeConfiguration(cfg config.Config) map[string]any {
-	return map[string]any{"environment": cfg.Environment, "demoMode": cfg.DemoMode, "openai": map[string]any{"configured": cfg.OpenAI.Validate() == nil, "model": cfg.OpenAI.Model, "baseUrl": safeHost(cfg.OpenAI.BaseURL)}, "seedance": map[string]any{"configured": cfg.Seedance.Validate() == nil, "model": cfg.Seedance.Model, "apiVersion": cfg.Seedance.APIVersion}, "meta": map[string]any{"configured": cfg.Meta.Validate() == nil, "apiVersion": cfg.Meta.APIVersion}, "renderer": map[string]any{"configured": rendererConfigured(cfg.Renderer), "baseUrl": safeHost(cfg.Renderer.BaseURL)}, "storage": map[string]any{"configured": cfg.R2.Validate() == nil, "bucket": cfg.R2.Bucket}}
+func safeConfiguration(ctx context.Context, pool *pgxpool.Pool, cfg config.Config) map[string]any {
+	result := map[string]any{"environment": cfg.Environment, "source": "database", "rendererInternalAuthConfigured": len(cfg.Renderer.SharedSecret) >= 32, "clients": map[string]any{"demo": int64(0), "live": int64(0)}, "providers": map[string]any{}}
+	var demo, live int64
+	if err := pool.QueryRow(ctx, `SELECT count(*) FILTER(WHERE demo_mode),count(*) FILTER(WHERE NOT demo_mode) FROM client_provider_profiles`).Scan(&demo, &live); err == nil {
+		result["clients"] = map[string]any{"demo": demo, "live": live}
+	}
+	rows, err := pool.Query(ctx, `SELECT provider::text,count(*) FILTER(WHERE enabled) FROM provider_configurations GROUP BY provider ORDER BY provider`)
+	if err != nil {
+		return result
+	}
+	defer rows.Close()
+	providers := map[string]any{}
+	for rows.Next() {
+		var provider string
+		var count int64
+		if rows.Scan(&provider, &count) == nil {
+			providers[strings.ToLower(provider)] = map[string]any{"enabledClientCount": count}
+		}
+	}
+	result["providers"] = providers
+	return result
 }
 func consoleError(c fiber.Ctx, _ error) error {
 	return problem.Write(c, 500, "operations-error", "Không thể tải Operations Console", "Kiểm tra database, River và provider health.")

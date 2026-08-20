@@ -17,6 +17,7 @@ import (
 
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/jobs"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/config"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/providerconfigs"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/usage"
 )
 
@@ -33,11 +34,31 @@ type Service struct {
 	enqueuer *jobs.Enqueuer
 	provider Provider
 	config   config.Config
-	now      func() time.Time
+	resolver interface {
+		Load(context.Context, uuid.UUID) (providerconfigs.Bundle, error)
+	}
+	now func() time.Time
 }
 
 func NewService(pool *pgxpool.Pool, enqueuer *jobs.Enqueuer, provider Provider, cfg config.Config) *Service {
 	return &Service{pool: pool, enqueuer: enqueuer, provider: provider, config: cfg, now: func() time.Time { return time.Now().UTC() }}
+}
+
+func NewTenantService(pool *pgxpool.Pool, enqueuer *jobs.Enqueuer, resolver interface {
+	Load(context.Context, uuid.UUID) (providerconfigs.Bundle, error)
+}, cfg config.Config) *Service {
+	return &Service{pool: pool, enqueuer: enqueuer, resolver: resolver, config: cfg, now: func() time.Time { return time.Now().UTC() }}
+}
+
+func (s *Service) effectiveConfig(ctx context.Context, clientID uuid.UUID) (config.Config, error) {
+	if s.resolver == nil {
+		return s.config, nil
+	}
+	bundle, err := s.resolver.Load(ctx, clientID)
+	if err != nil || bundle.Seedance.Model == "" {
+		return config.Config{}, ErrUnavailable
+	}
+	return config.Config{DemoMode: bundle.DemoMode, OpenAI: bundle.OpenAI, Seedance: bundle.Seedance, R2: bundle.R2, Meta: bundle.Meta, Renderer: bundle.Renderer, WorkerTempDir: s.config.WorkerTempDir}, nil
 }
 
 type sceneGenerationInput struct {
@@ -50,15 +71,19 @@ type sceneGenerationInput struct {
 }
 
 func (s *Service) Start(ctx context.Context, clientID, workspaceID, campaignID, sceneID, actorID uuid.UUID, idempotencyKey string, input StartInput) (Generation, error) {
+	cfg, configErr := s.effectiveConfig(ctx, clientID)
+	if configErr != nil {
+		return Generation{}, configErr
+	}
 	idempotencyKey = strings.TrimSpace(idempotencyKey)
 	if idempotencyKey == "" {
 		return Generation{}, ErrInvalid
 	}
 	if input.Resolution == "" {
-		input.Resolution = s.config.Seedance.Resolution
+		input.Resolution = cfg.Seedance.Resolution
 	}
 	if input.AspectRatio == "" {
-		input.AspectRatio = s.config.Seedance.AspectRatio
+		input.AspectRatio = cfg.Seedance.AspectRatio
 	}
 	if !supportedFormat(input.Resolution, input.AspectRatio) {
 		return Generation{}, ErrInvalid
@@ -91,7 +116,7 @@ func (s *Service) Start(ctx context.Context, clientID, workspaceID, campaignID, 
 		return Generation{}, err
 	}
 	promptHash := digest(scene.Prompt)
-	requestHash := digest(strings.Join([]string{workspaceID.String(), campaignID.String(), sceneID.String(), fmt.Sprint(scene.SceneVersion), scene.SceneHash, promptHash, referenceHash, s.config.Seedance.Model, input.Resolution, input.AspectRatio, fmt.Sprint(scene.DurationSeconds), fmt.Sprint(input.GenerateAudio)}, "\x1f"))
+	requestHash := digest(strings.Join([]string{workspaceID.String(), campaignID.String(), sceneID.String(), fmt.Sprint(scene.SceneVersion), scene.SceneHash, promptHash, referenceHash, cfg.Seedance.Model, input.Resolution, input.AspectRatio, fmt.Sprint(scene.DurationSeconds), fmt.Sprint(input.GenerateAudio)}, "\x1f"))
 	keyHash := digest(idempotencyKey + "\x1f" + requestHash)
 
 	if existing, findErr := getReusable(ctx, tx, clientID, workspaceID, campaignID, sceneID, keyHash); findErr == nil {
@@ -110,15 +135,15 @@ func (s *Service) Start(ctx context.Context, clientID, workspaceID, campaignID, 
 	}
 	id := uuid.New()
 	providerName := "byteplus-modelark"
-	if s.config.DemoMode {
+	if cfg.DemoMode {
 		providerName = "demo"
 	}
-	estimated := float64(scene.DurationSeconds) * s.config.Seedance.USDPerSecond
-	sanitized, _ := json.Marshal(map[string]any{"sceneId": sceneID, "sceneVersion": scene.SceneVersion, "promptHash": promptHash, "referenceHash": referenceHash, "model": s.config.Seedance.Model, "resolution": input.Resolution, "ratio": input.AspectRatio, "duration": scene.DurationSeconds, "generateAudio": input.GenerateAudio})
+	estimated := float64(scene.DurationSeconds) * cfg.Seedance.USDPerSecond
+	sanitized, _ := json.Marshal(map[string]any{"sceneId": sceneID, "sceneVersion": scene.SceneVersion, "promptHash": promptHash, "referenceHash": referenceHash, "model": cfg.Seedance.Model, "resolution": input.Resolution, "ratio": input.AspectRatio, "duration": scene.DurationSeconds, "generateAudio": input.GenerateAudio})
 	_, err = tx.Exec(ctx, `
 		INSERT INTO scene_generation_tasks(id,client_id,workspace_id,campaign_id,scene_id,scene_version,provider,status,idempotency_key,attempt_number,model,api_version,resolution,aspect_ratio,duration_seconds,generate_audio,scene_hash,prompt_hash,reference_hash,request_hash,sanitized_request,estimated_cost_usd,timeout_at,created_by)
 		VALUES($1,$2,$3,$4,$5,$6,$7,'QUEUED',$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
-		id, clientID, workspaceID, campaignID, sceneID, scene.SceneVersion, providerName, keyHash, attempt, s.config.Seedance.Model, s.config.Seedance.APIVersion, input.Resolution, input.AspectRatio, scene.DurationSeconds, input.GenerateAudio, scene.SceneHash, promptHash, referenceHash, requestHash, sanitized, estimated, s.now().Add(s.config.Seedance.TaskTimeout), actorID)
+		id, clientID, workspaceID, campaignID, sceneID, scene.SceneVersion, providerName, keyHash, attempt, cfg.Seedance.Model, cfg.Seedance.APIVersion, input.Resolution, input.AspectRatio, scene.DurationSeconds, input.GenerateAudio, scene.SceneHash, promptHash, referenceHash, requestHash, sanitized, estimated, s.now().Add(cfg.Seedance.TaskTimeout), actorID)
 	if err != nil {
 		return Generation{}, classifyDatabaseConflict(err)
 	}

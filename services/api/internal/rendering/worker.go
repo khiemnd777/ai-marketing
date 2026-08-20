@@ -18,6 +18,8 @@ import (
 	"github.com/riverqueue/river"
 
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/jobs"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/config"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/providerconfigs"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/storage"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/usage"
 )
@@ -27,6 +29,10 @@ type Worker struct {
 	Pool     *pgxpool.Pool
 	Store    storage.ObjectStore
 	Renderer *RendererClient
+	Resolver interface {
+		Load(context.Context, uuid.UUID) (providerconfigs.Bundle, error)
+	}
+	RendererSecret string
 }
 
 const finalRenderPersistenceGrace = 5 * time.Minute
@@ -54,9 +60,6 @@ type manifestContext struct {
 }
 
 func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.FinalRenderArgs]) error {
-	if w.Store == nil || w.Renderer == nil {
-		return errors.New("final render worker is not configured")
-	}
 	var data manifestContext
 	err := w.Pool.QueryRow(ctx, `UPDATE render_jobs r SET status='BUILDING_MANIFEST',started_at=COALESCE(r.started_at,now()),version=r.version+1,updated_at=now() FROM video_projects p JOIN video_project_versions pv ON pv.video_project_id=p.id AND pv.version=p.current_version JOIN campaigns c ON c.id=p.campaign_id JOIN campaign_versions cv ON cv.campaign_id=c.id AND cv.version=c.current_version JOIN products pr ON pr.id=c.product_id JOIN product_versions prv ON prv.product_id=pr.id AND prv.version=pr.current_version JOIN brands b ON b.id=c.brand_id JOIN brand_versions bv ON bv.brand_id=b.id AND bv.version=b.current_version WHERE r.id=$1 AND r.status IN ('QUEUED','FAILED') AND p.id=r.video_project_id AND p.current_version=r.video_project_version RETURNING r.client_id,r.workspace_id,r.campaign_id,p.id,r.created_by,p.current_version,pv.project_hash,cv.language,cv.duration_seconds,pv.headline,pv.lower_third,pv.show_price,pv.show_discount_code,pv.show_cta,pv.show_website,pv.show_phone,pv.show_qr_code,pv.show_disclaimer,pv.burn_captions,p.music_asset_id,p.music_gain_db::float8,p.dialogue_ducking_db::float8,pr.id,b.id,pr.name,cv.cta,cv.offer,prv.currency,prv.regular_price::float8,prv.sale_price::float8,prv.discount_code,bv.website,bv.phone_number,bv.default_disclaimer,bv.logo_asset_ids,r.created_at`, job.Args.RenderJobID).Scan(&data.ClientID, &data.WorkspaceID, &data.CampaignID, &data.ProjectID, &data.ActorID, &data.ProjectVersion, &data.ProjectHash, &data.Language, &data.Duration, &data.Headline, &data.LowerThird, &data.ShowPrice, &data.ShowDiscount, &data.ShowCTA, &data.ShowWebsite, &data.ShowPhone, &data.ShowQR, &data.ShowDisclaimer, &data.BurnCaptions, &data.MusicAssetID, &data.MusicGain, &data.DialogueDucking, &data.ProductID, &data.BrandID, &data.ProductName, &data.CTA, &data.Offer, &data.Currency, &data.RegularPrice, &data.SalePrice, &data.Discount, &data.Website, &data.Phone, &data.Disclaimer, &data.LogoIDs, &data.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -64,6 +67,25 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.FinalRenderArgs])
 	}
 	if err != nil {
 		return err
+	}
+	store, renderer, r2Config := w.Store, w.Renderer, config.R2Config{}
+	if w.Resolver != nil {
+		bundle, resolveErr := w.Resolver.Load(ctx, data.ClientID)
+		if resolveErr != nil {
+			return w.fail(ctx, job, errors.New("client provider configuration is unavailable"))
+		}
+		resolvedStore, storeErr := storage.NewS3Store(ctx, bundle.R2)
+		if storeErr != nil {
+			return w.fail(ctx, job, storeErr)
+		}
+		resolvedRenderer, rendererErr := NewRendererClient(config.RendererConfig{BaseURL: bundle.Renderer.BaseURL, SharedSecret: w.RendererSecret})
+		if rendererErr != nil {
+			return w.fail(ctx, job, rendererErr)
+		}
+		store, renderer, r2Config = resolvedStore, resolvedRenderer, bundle.R2
+	}
+	if store == nil || renderer == nil {
+		return w.fail(ctx, job, errors.New("final render worker is not configured"))
 	}
 	manifest, err := w.buildManifest(ctx, job.Args.RenderJobID, data)
 	if err != nil {
@@ -91,11 +113,16 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.FinalRenderArgs])
 	if err = tx.Commit(ctx); err != nil {
 		return err
 	}
-	result, err := w.Renderer.Render(ctx, raw)
+	var result RendererResult
+	if w.Resolver != nil {
+		result, err = renderer.RenderWithStorage(ctx, raw, r2Config)
+	} else {
+		result, err = renderer.Render(ctx, raw)
+	}
 	if err != nil {
 		return w.fail(ctx, job, err)
 	}
-	return w.persist(ctx, job.Args.RenderJobID, data, manifest, result)
+	return w.persist(ctx, store, job.Args.RenderJobID, data, manifest, result)
 }
 
 func (w *Worker) buildManifest(ctx context.Context, renderID uuid.UUID, data manifestContext) (RenderManifest, error) {
@@ -229,14 +256,14 @@ func (w *Worker) references(ctx context.Context, clientID, workspaceID uuid.UUID
 	return out, nil
 }
 
-func (w *Worker) persist(ctx context.Context, id uuid.UUID, data manifestContext, manifest RenderManifest, result RendererResult) error {
+func (w *Worker) persist(ctx context.Context, store storage.ObjectStore, id uuid.UUID, data manifestContext, manifest RenderManifest, result RendererResult) error {
 	srt, vtt := subtitles(manifest.Captions)
 	srtKey := strings.TrimSuffix(manifest.OutputObjectKey, "final.mp4") + "captions.srt"
 	vttKey := strings.TrimSuffix(manifest.OutputObjectKey, "final.mp4") + "captions.vtt"
-	if err := w.Store.Put(ctx, srtKey, "application/x-subrip", int64(len(srt)), bytes.NewReader(srt), map[string]string{"render-job-id": id.String()}); err != nil {
+	if err := store.Put(ctx, srtKey, "application/x-subrip", int64(len(srt)), bytes.NewReader(srt), map[string]string{"render-job-id": id.String()}); err != nil {
 		return err
 	}
-	if err := w.Store.Put(ctx, vttKey, "text/vtt", int64(len(vtt)), bytes.NewReader(vtt), map[string]string{"render-job-id": id.String()}); err != nil {
+	if err := store.Put(ctx, vttKey, "text/vtt", int64(len(vtt)), bytes.NewReader(vtt), map[string]string{"render-job-id": id.String()}); err != nil {
 		return err
 	}
 	assetID := uuid.New()

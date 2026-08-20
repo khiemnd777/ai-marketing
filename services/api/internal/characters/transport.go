@@ -63,6 +63,26 @@ func (h *Handler) Create(c fiber.Ctx) error {
 	}
 	return c.Status(201).JSON(item)
 }
+func (h *Handler) Update(c fiber.Ctx) error {
+	a, b, _, e := characterScope(c, false)
+	if e != nil {
+		return characterError(c, e)
+	}
+	id, e := uuid.Parse(c.Params("characterId"))
+	if e != nil {
+		return characterError(c, ErrInvalid)
+	}
+	var input Input
+	if c.Bind().Body(&input) != nil {
+		return characterError(c, ErrInvalid)
+	}
+	actor, _ := auth.PrincipalFrom(c)
+	item, e := h.service.Update(c.Context(), a, b, id, actor, auth.MetadataFrom(c), input)
+	if e != nil {
+		return characterError(c, e)
+	}
+	return c.JSON(item)
+}
 func (h *Handler) GetSelection(c fiber.Ctx) error {
 	a, b, id, e := characterScope(c, true)
 	if e != nil {

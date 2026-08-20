@@ -68,6 +68,7 @@ jobs:
           STUDIO_USE_TESTCONTAINERS: "true"
         run: |
           go test ./internal/auth -run TestAdminBootstrapIntegration -count=1 -v
+          go test ./internal/providerconfigs -run TestClientProviderConfigurationIsolationIntegration -count=1 -v
           go test ./internal/planning -run TestDemoPlanningWorkflowIntegration -count=1 -v
 
   migrations:
@@ -129,13 +130,12 @@ jobs:
       DATABASE_URL: postgres://studio:studio@127.0.0.1:5432/studio_e2e?sslmode=disable
       SESSION_SECRET: e2e-session-secret-is-at-least-thirty-two-bytes
       ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
-      R2_ACCESS_KEY_ID: e2e-access-key
-      R2_SECRET_ACCESS_KEY: e2e-secret-key
-      R2_BUCKET: e2e-media
-      R2_ENDPOINT: http://127.0.0.1:9000
-      RENDERER_BASE_URL: http://127.0.0.1:8090
-      RENDERER_SHARED_SECRET: e2e-renderer-shared-secret-at-least-32-bytes
-      DEMO_MODE: "true"
+      RENDERER_INTERNAL_AUTH_SECRET: e2e-renderer-shared-secret-at-least-32-bytes
+      STUDIO_TEST_R2_ACCESS_KEY_ID: e2e-access-key
+      STUDIO_TEST_R2_SECRET_ACCESS_KEY: e2e-secret-key
+      STUDIO_TEST_R2_BUCKET: e2e-media
+      STUDIO_TEST_R2_ENDPOINT: http://host.docker.internal:9000
+      STUDIO_TEST_RENDERER_URL: http://127.0.0.1:8090
       STUDIO_TEST_EMAIL: admin-e2e@example.com
       STUDIO_TEST_PASSWORD: E2E-secure-password-2026
       STUDIO_EXPECT_ADMIN_BOOTSTRAP: "true"
@@ -168,6 +168,7 @@ jobs:
       - name: Start private object storage and production renderer
         run: |
           set -euo pipefail
+          echo '127.0.0.1 host.docker.internal' | sudo tee -a /etc/hosts >/dev/null
           docker build -f infra/docker/renderer.Dockerfile -t studio-renderer:e2e .
           docker network create studio-browser-e2e
           docker run --detach --name studio-minio-e2e --network studio-browser-e2e --network-alias minio --publish 9000:9000 \
@@ -187,13 +188,9 @@ jobs:
           docker run --rm --network studio-browser-e2e --entrypoint /bin/sh \
             minio/mc:RELEASE.2025-08-13T08-35-41Z-cpuv1 -c \
             'mc alias set studio http://minio:9000 e2e-access-key e2e-secret-key && mc mb --ignore-existing studio/e2e-media'
-          docker run --detach --name studio-renderer-e2e --network studio-browser-e2e --network-alias renderer --shm-size 1gb --publish 8090:8090 \
-            --env RENDERER_SHARED_SECRET=e2e-renderer-shared-secret-at-least-32-bytes \
+          docker run --detach --name studio-renderer-e2e --network studio-browser-e2e --network-alias renderer --add-host host.docker.internal:host-gateway --shm-size 1gb --publish 8090:8090 \
+            --env RENDERER_INTERNAL_AUTH_SECRET=e2e-renderer-shared-secret-at-least-32-bytes \
             --env RENDER_CONCURRENCY=1 \
-            --env R2_ACCESS_KEY_ID=e2e-access-key \
-            --env R2_SECRET_ACCESS_KEY=e2e-secret-key \
-            --env R2_BUCKET=e2e-media \
-            --env R2_ENDPOINT=http://minio:9000 \
             studio-renderer:e2e
           for attempt in $(seq 1 60); do
             if curl --fail --silent http://127.0.0.1:8090/health/ready >/dev/null; then
@@ -287,12 +284,8 @@ jobs:
             --env MINIO_ROOT_PASSWORD=studio-local-secret \
             minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1 server /data
           docker run --detach --name studio-renderer-smoke --network studio-render-smoke --network-alias renderer --shm-size 1gb --publish 18090:8090 \
-            --env RENDERER_SHARED_SECRET=renderer-smoke-secret-at-least-32-bytes \
+            --env RENDERER_INTERNAL_AUTH_SECRET=renderer-smoke-secret-at-least-32-bytes \
             --env RENDER_CONCURRENCY=1 \
-            --env R2_ACCESS_KEY_ID=studio \
-            --env R2_SECRET_ACCESS_KEY=studio-local-secret \
-            --env R2_BUCKET=studio-render-smoke \
-            --env R2_ENDPOINT=http://minio:9000 \
             studio-renderer:test
           for attempt in $(seq 1 60); do
             if curl --fail --silent http://127.0.0.1:19000/minio/health/ready >/dev/null \

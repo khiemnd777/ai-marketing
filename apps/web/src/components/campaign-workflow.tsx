@@ -4,24 +4,20 @@ import type { components } from "@studio/api-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bot, CircleDollarSign, RefreshCw } from "lucide-react";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 import { usePermissions } from "@/components/auth-context";
+import { useScopedEntityId, useStudioScope } from "@/components/studio-scope";
 import { Badge, Button, Card, PageHeader, StatePanel } from "@/components/ui";
 import { api } from "@/lib/api";
 import { apiError, newIdempotencyKey } from "@/lib/problem";
 import { cn } from "@/lib/cn";
+import { studioRoutes } from "@/lib/studio-routes";
 
 export type GenerationOperation = components["schemas"]["GenerationOperation"];
 
 export function useCampaignRoute() {
-  const params = useParams<{ id: string }>();
-  const query = useSearchParams();
-  return { campaignId: params.id, clientId: query.get("clientId") ?? "", workspaceId: query.get("workspaceId") ?? "" };
-}
-
-function queryString(clientId: string, workspaceId: string) {
-  return `clientId=${encodeURIComponent(clientId)}&workspaceId=${encodeURIComponent(workspaceId)}`;
+  const { clientId, workspaceId } = useStudioScope();
+  return { campaignId: useScopedEntityId("campaignId"), clientId, workspaceId };
 }
 
 const tabs = [
@@ -37,7 +33,7 @@ const tabs = [
 ] as const;
 
 export function CampaignTabs({ campaignId, clientId, workspaceId, active }: { campaignId: string; clientId: string; workspaceId: string; active: string }) {
-  return <nav className="mb-7 flex gap-2 overflow-x-auto pb-1" aria-label="Campaign workflow">{tabs.map(([suffix, label]) => <Link key={suffix} href={`/campaigns/${campaignId}${suffix}?${queryString(clientId, workspaceId)}`} className={cn("whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold", active === suffix ? "bg-[var(--lime)] text-[var(--ink)]" : "bg-white text-[var(--muted)] ring-1 ring-[var(--line)] hover:text-[var(--ink)]")}>{label}</Link>)}</nav>;
+  return <nav className="mb-7 flex gap-2 overflow-x-auto pb-1" aria-label="Campaign workflow">{tabs.map(([suffix, label]) => <Link key={suffix} href={studioRoutes.campaign(clientId, workspaceId, campaignId, suffix)} className={cn("whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold", active === suffix ? "bg-[var(--lime)] text-[var(--ink)]" : "bg-white text-[var(--muted)] ring-1 ring-[var(--line)] hover:text-[var(--ink)]")}>{label}</Link>)}</nav>;
 }
 
 export function CampaignHeader({ active, title, description, children }: { active: string; title: string; description: string; children?: ReactNode }) {

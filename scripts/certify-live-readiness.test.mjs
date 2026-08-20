@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const certificationScript = path.join(repositoryRoot, "scripts", "certify-live-readiness.mjs");
+const certificationClientId = "018f47a0-7b5f-7d5f-9d2a-c5939813086f";
 
 function sendJSON(response, status, body, headers = {}) {
   response.writeHead(status, { "content-type": "application/json", ...headers });
@@ -30,12 +31,12 @@ async function close(server) {
 async function fixture({ demoMode = false } = {}) {
   const state = { loginBody: "", logoutHeaders: undefined };
   const providers = [
-    ["openai", "https://api.openai.com"],
-    ["seedance", "https://ark.cn-beijing.volces.com"],
-    ["r2", "https://account.r2.cloudflarestorage.com"],
-    ["meta", "https://graph.facebook.com"],
-    ["renderer", "http://renderer:8090"],
-  ].map(([name, baseUrl]) => ({ name, baseUrl, configured: true }));
+    ["OPENAI", { baseUrl: "https://api.openai.com" }],
+    ["SEEDANCE", { baseUrl: "https://ark.cn-beijing.volces.com" }],
+    ["R2", { endpoint: "https://account.r2.cloudflarestorage.com" }],
+    ["META", { graphBaseUrl: "https://graph.facebook.com" }],
+    ["RENDERER", { baseUrl: "http://renderer:8090" }],
+  ].map(([provider, settings]) => ({ provider, settings, configured: true }));
 
   const api = await listen(async (request, response) => {
     if (request.url === "/v1/health/ready") {
@@ -51,8 +52,8 @@ async function fixture({ demoMode = false } = {}) {
       });
       return;
     }
-    if (request.url === "/v1/operations/providers") {
-      sendJSON(response, 200, { demoMode, providers });
+    if (request.url === `/v1/clients/${certificationClientId}/provider-configuration`) {
+      sendJSON(response, 200, { clientId: certificationClientId, demoMode, providers });
       return;
     }
     if (request.url === "/v1/auth/logout" && request.method === "POST") {
@@ -105,6 +106,7 @@ async function runCertification(targets) {
       STUDIO_CERT_RENDERER_URL: targets.renderer.origin,
       STUDIO_CERT_ADMIN_EMAIL: email,
       STUDIO_CERT_ADMIN_PASSWORD: password,
+      STUDIO_CERT_CLIENT_ID: certificationClientId,
       STUDIO_CERT_ALLOW_INSECURE_LOCAL: "true",
       STUDIO_CERT_TIMEOUT_MS: "2000",
     },
@@ -129,7 +131,8 @@ test("certification passes without spending and always revokes its Admin session
     const report = JSON.parse(result.stdout.trim());
     assert.equal(report.status, "passed");
     assert.equal(report.mode, "read-only-no-spend");
-    assert.deepEqual(report.providers, ["openai", "seedance", "r2", "meta", "renderer"]);
+    assert.deepEqual(report.providers, ["OPENAI", "SEEDANCE", "R2", "META", "RENDERER"]);
+    assert.equal(report.clientId, certificationClientId);
     assert.deepEqual(JSON.parse(targets.state.loginBody), { email: result.email, password: result.password });
     assert.match(targets.state.logoutHeaders?.cookie ?? "", /studio_session=certification-session/);
     assert.equal(targets.state.logoutHeaders?.["x-csrf-token"], "certification-csrf");
@@ -145,7 +148,7 @@ test("certification fails closed in demo mode and still revokes its session", as
   try {
     const result = await runCertification(targets);
     assert.equal(result.code, 1);
-    assert.match(result.stderr, /DEMO_MODE=false/);
+    assert.match(result.stderr, /client provider profile.*LIVE mode/);
     assert.match(targets.state.logoutHeaders?.cookie ?? "", /studio_session=certification-session/);
     assert.equal(`${result.stdout}${result.stderr}`.includes(result.email), false);
     assert.equal(`${result.stdout}${result.stderr}`.includes(result.password), false);

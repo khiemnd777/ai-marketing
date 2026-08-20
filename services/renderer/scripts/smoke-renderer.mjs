@@ -41,7 +41,10 @@ async function bodyBytes(body) {
 }
 
 async function render(manifest) {
-  const body = JSON.stringify(manifest);
+  const body = JSON.stringify({
+    manifest,
+    storage: { endpoint: storageEndpoint, accessKeyId, secretAccessKey, bucket },
+  });
   const signature = createHmac("sha256", sharedSecret).update(body).digest("hex");
   const response = await fetch(new URL("/v1/renders", rendererUrl), {
     method: "POST",

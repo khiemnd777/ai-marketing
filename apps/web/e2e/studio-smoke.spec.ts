@@ -41,9 +41,8 @@ test("login, CSRF mutation, client creation, and workspace creation work through
   expect(clientResponse.status()).toBe(201);
   expect(clientResponse.request().headers()["x-csrf-token"]).toBeTruthy();
   expect(clientResponse.request().headers()["idempotency-key"]).toBeTruthy();
-  await expect(page.getByRole("link", { name: companyName })).toBeVisible();
-
-  await page.getByRole("link", { name: companyName }).click();
+  await expect(page).toHaveURL(/\/clients\/[0-9a-f-]+$/);
+  await expect(page.getByRole("heading", { name: companyName })).toBeVisible();
   await page.getByRole("button", { name: "Thêm workspace" }).click();
   await page.getByLabel("Tên workspace").fill(workspaceName);
   await page.getByLabel("Slug").fill(workspaceSlug);
@@ -59,14 +58,15 @@ test("login, CSRF mutation, client creation, and workspace creation work through
   const workspaceLink = page.getByRole("link").filter({ hasText: workspaceName });
   await expect(workspaceLink).toBeVisible();
 
-  const clientId = new URL(page.url()).pathname.split("/").at(-1)!;
   const workspaceHref = await workspaceLink.getAttribute("href");
-  const workspaceId = new URL(workspaceHref!, page.url()).pathname.split("/").at(-1)!;
-  await page.goto(`/media?clientId=${clientId}&workspaceId=${workspaceId}`);
+  const workspaceParts = new URL(workspaceHref!, page.url()).pathname.split("/");
+  const clientId = workspaceParts[2]!;
+  const workspaceId = workspaceParts[4]!;
+  await page.goto(`/clients/${clientId}/workspaces/${workspaceId}/media`);
   await expect(page.getByRole("heading", { name: "Thư viện media" })).toBeVisible();
   await expect(page.locator(".uppy-Dashboard")).toBeVisible();
 
-  await page.goto(`/analytics?clientId=${clientId}&workspaceId=${workspaceId}`);
+  await page.goto(`/clients/${clientId}/workspaces/${workspaceId}/analytics`);
   await expect(page.getByRole("heading", { name: "Analytics & Learning" })).toBeVisible();
 
   const recommendationResponsePromise = page.waitForResponse(
@@ -78,7 +78,7 @@ test("login, CSRF mutation, client creation, and workspace creation work through
   expect(recommendationResponse.status()).toBe(201);
 
   const missingCampaignId = "00000000-0000-4000-8000-000000000000";
-  await page.goto(`/campaigns/${missingCampaignId}/composer?clientId=${clientId}&workspaceId=${workspaceId}`);
+  await page.goto(`/clients/${clientId}/workspaces/${workspaceId}/campaigns/${missingCampaignId}/composer`);
   await expect(page.getByRole("heading", { name: "Final Composer" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Quality" })).toBeVisible();
   await page.getByRole("link", { name: "Quality" }).click();

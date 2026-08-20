@@ -40,6 +40,12 @@ type changePasswordRequest struct {
 	NewPassword     string `json:"newPassword"`
 }
 
+type updateProfileRequest struct {
+	Email       string `json:"email"`
+	DisplayName string `json:"displayName"`
+	Version     int64  `json:"version"`
+}
+
 type sessionResponse struct {
 	ID         string    `json:"id"`
 	IPAddress  string    `json:"ipAddress"`
@@ -155,6 +161,33 @@ func (h *Handler) Me(c fiber.Ctx) error {
 		return problem.Write(c, fiber.StatusUnauthorized, "unauthenticated", "Cần đăng nhập", "Phiên đăng nhập không hợp lệ hoặc đã hết hạn.")
 	}
 	return c.JSON(principalResponse(principal))
+}
+
+func (h *Handler) UpdateMe(c fiber.Ctx) error {
+	principal, ok := PrincipalFrom(c)
+	if !ok {
+		return problem.Write(c, fiber.StatusUnauthorized, "unauthenticated", "Cần đăng nhập", "Phiên đăng nhập không hợp lệ hoặc đã hết hạn.")
+	}
+	var input updateProfileRequest
+	if err := c.Bind().Body(&input); err != nil {
+		return problem.Write(c, fiber.StatusBadRequest, "invalid-request", "Yêu cầu không hợp lệ", "Nội dung cập nhật tài khoản phải là JSON hợp lệ.")
+	}
+	updated, err := h.service.UpdateProfile(c.Context(), principal, UpdateProfileInput{Email: input.Email, DisplayName: input.DisplayName, Version: input.Version}, metadataFrom(c))
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrInvalidProfile):
+			return problem.Write(c, fiber.StatusUnprocessableEntity, "validation", "Thông tin tài khoản không hợp lệ", "Kiểm tra email, họ tên và phiên bản tài khoản.")
+		case errors.Is(err, ErrEmailInUse):
+			return problem.Write(c, fiber.StatusConflict, "email-exists", "Email đã tồn tại", "Một tài khoản nội bộ đang sử dụng email này.")
+		case errors.Is(err, ErrConflict):
+			return problem.Write(c, fiber.StatusConflict, "stale-user", "Tài khoản đã thay đổi", "Tải lại trang và thử lại.")
+		case errors.Is(err, ErrUnauthenticated):
+			return problem.Write(c, fiber.StatusUnauthorized, "unauthenticated", "Cần đăng nhập", "Phiên đăng nhập không hợp lệ hoặc đã hết hạn.")
+		default:
+			return problem.Write(c, fiber.StatusInternalServerError, "internal", "Không thể cập nhật tài khoản", "Hệ thống chưa thể lưu thông tin tài khoản.")
+		}
+	}
+	return c.JSON(principalResponse(updated))
 }
 
 func (h *Handler) Logout(c fiber.Ctx) error {

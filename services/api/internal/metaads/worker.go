@@ -13,6 +13,7 @@ import (
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/jobs"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/meta"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/cryptox"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/providerconfigs"
 )
 
 type ActionWorker struct {
@@ -21,21 +22,35 @@ type ActionWorker struct {
 	Cipher   *cryptox.Cipher
 	Provider meta.Provider
 	Enqueuer *jobs.Enqueuer
+	Resolver interface {
+		Load(context.Context, uuid.UUID) (providerconfigs.Bundle, error)
+	}
 }
 
 func (w *ActionWorker) Work(ctx context.Context, job *river.Job[jobs.MetaAdActionArgs]) error {
-	var actionID, campaignID, connectionID uuid.UUID
+	var actionID, campaignID, connectionID, clientID uuid.UUID
 	var action, providerAccountID, name, objective, buyingType string
 	var providerCampaignID *string
 	var requested, daily, lifetime *int64
 	var cipherText, nonce []byte
-	err := w.Pool.QueryRow(ctx, `UPDATE meta_ad_actions x SET status='PROCESSING',version=x.version+1 FROM ad_campaigns a JOIN meta_ad_accounts aa ON aa.id=a.meta_ad_account_id JOIN meta_connections c ON c.id=aa.connection_id WHERE x.id=$1 AND x.ad_campaign_id=a.id AND x.status='QUEUED' AND c.status IN ('CONNECTED','EXPIRING') AND (c.token_expires_at IS NULL OR c.token_expires_at>now()) AND (c.data_access_expires_at IS NULL OR c.data_access_expires_at>now()) AND (x.action IN ('CREATE_PAUSED','PAUSE','ARCHIVE') OR EXISTS(SELECT 1 FROM approvals ap WHERE ap.entity_id=x.id AND ap.entity_hash=x.action_hash AND ap.status='APPROVED' AND ap.invalidated_at IS NULL)) RETURNING x.id,a.id,c.id,x.action::text,aa.provider_ad_account_id,a.name,a.objective,a.buying_type,a.provider_campaign_id,x.requested_budget_minor,a.daily_budget_minor,a.lifetime_budget_minor,c.token_ciphertext,c.token_nonce`, job.Args.ActionID).Scan(&actionID, &campaignID, &connectionID, &action, &providerAccountID, &name, &objective, &buyingType, &providerCampaignID, &requested, &daily, &lifetime, &cipherText, &nonce)
+	err := w.Pool.QueryRow(ctx, `UPDATE meta_ad_actions x SET status='PROCESSING',version=x.version+1 FROM ad_campaigns a JOIN meta_ad_accounts aa ON aa.id=a.meta_ad_account_id JOIN meta_connections c ON c.id=aa.connection_id WHERE x.id=$1 AND x.ad_campaign_id=a.id AND x.status='QUEUED' AND c.status IN ('CONNECTED','EXPIRING') AND (c.token_expires_at IS NULL OR c.token_expires_at>now()) AND (c.data_access_expires_at IS NULL OR c.data_access_expires_at>now()) AND (x.action IN ('CREATE_PAUSED','PAUSE','ARCHIVE') OR EXISTS(SELECT 1 FROM approvals ap WHERE ap.entity_id=x.id AND ap.entity_hash=x.action_hash AND ap.status='APPROVED' AND ap.invalidated_at IS NULL)) RETURNING x.id,a.id,c.id,x.client_id,x.action::text,aa.provider_ad_account_id,a.name,a.objective,a.buying_type,a.provider_campaign_id,x.requested_budget_minor,a.daily_budget_minor,a.lifetime_budget_minor,c.token_ciphertext,c.token_nonce`, job.Args.ActionID).Scan(&actionID, &campaignID, &connectionID, &clientID, &action, &providerAccountID, &name, &objective, &buyingType, &providerCampaignID, &requested, &daily, &lifetime, &cipherText, &nonce)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return river.JobCancel(ErrPrerequisite)
 	} else if err != nil {
 		return err
 	}
-	if w.Cipher == nil || w.Provider == nil {
+	provider := w.Provider
+	if w.Resolver != nil {
+		bundle, resolveErr := w.Resolver.Load(ctx, clientID)
+		if resolveErr != nil {
+			return w.fail(ctx, actionID, campaignID, action, "provider_configuration", "Client Meta provider configuration is unavailable")
+		}
+		provider, resolveErr = meta.NewProvider(bundle.DemoMode, bundle.Meta)
+		if resolveErr != nil {
+			return w.fail(ctx, actionID, campaignID, action, "provider_configuration", "Client Meta provider configuration is invalid")
+		}
+	}
+	if w.Cipher == nil || provider == nil {
 		return errors.New("Meta Ads worker is not configured")
 	}
 	token, err := w.Cipher.Decrypt(cipherText, nonce, "meta-connection:"+connectionID.String())
@@ -46,7 +61,7 @@ func (w *ActionWorker) Work(ctx context.Context, job *river.Job[jobs.MetaAdActio
 	newStatus := ""
 	switch action {
 	case "CREATE_PAUSED":
-		result, e := w.Provider.CreatePausedCampaign(ctx, meta.CampaignRequest{AdAccountID: providerAccountID, Name: name, Objective: objective, BuyingType: buyingType, AccessToken: string(token)})
+		result, e := provider.CreatePausedCampaign(ctx, meta.CampaignRequest{AdAccountID: providerAccountID, Name: name, Objective: objective, BuyingType: buyingType, AccessToken: string(token)})
 		if e != nil {
 			return w.providerFail(ctx, actionID, campaignID, action, e)
 		}
@@ -57,7 +72,7 @@ func (w *ActionWorker) Work(ctx context.Context, job *river.Job[jobs.MetaAdActio
 		if providerCampaignID == nil {
 			return w.fail(ctx, actionID, campaignID, action, "missing_provider_campaign", "Meta campaign is missing")
 		}
-		_, e := w.Provider.SetCampaignStatus(ctx, *providerCampaignID, "ACTIVE", string(token))
+		_, e := provider.SetCampaignStatus(ctx, *providerCampaignID, "ACTIVE", string(token))
 		if e != nil {
 			return w.providerFail(ctx, actionID, campaignID, action, e)
 		}
@@ -66,7 +81,7 @@ func (w *ActionWorker) Work(ctx context.Context, job *river.Job[jobs.MetaAdActio
 		if providerCampaignID == nil {
 			return w.fail(ctx, actionID, campaignID, action, "missing_provider_campaign", "Meta campaign is missing")
 		}
-		_, e := w.Provider.SetCampaignStatus(ctx, *providerCampaignID, "PAUSED", string(token))
+		_, e := provider.SetCampaignStatus(ctx, *providerCampaignID, "PAUSED", string(token))
 		if e != nil {
 			return w.providerFail(ctx, actionID, campaignID, action, e)
 		}
@@ -75,7 +90,7 @@ func (w *ActionWorker) Work(ctx context.Context, job *river.Job[jobs.MetaAdActio
 		if providerCampaignID == nil {
 			return w.fail(ctx, actionID, campaignID, action, "missing_provider_campaign", "Meta campaign is missing")
 		}
-		_, e := w.Provider.SetCampaignStatus(ctx, *providerCampaignID, "ARCHIVED", string(token))
+		_, e := provider.SetCampaignStatus(ctx, *providerCampaignID, "ARCHIVED", string(token))
 		if e != nil {
 			return w.providerFail(ctx, actionID, campaignID, action, e)
 		}
@@ -84,7 +99,7 @@ func (w *ActionWorker) Work(ctx context.Context, job *river.Job[jobs.MetaAdActio
 		if providerCampaignID == nil || requested == nil {
 			return w.fail(ctx, actionID, campaignID, action, "invalid_budget_action", "Budget action is incomplete")
 		}
-		_, e := w.Provider.SetCampaignBudget(ctx, *providerCampaignID, *requested, lifetime != nil, string(token))
+		_, e := provider.SetCampaignBudget(ctx, *providerCampaignID, *requested, lifetime != nil, string(token))
 		if e != nil {
 			return w.providerFail(ctx, actionID, campaignID, action, e)
 		}
@@ -144,13 +159,16 @@ type MetricsWorker struct {
 	Pool     *pgxpool.Pool
 	Cipher   *cryptox.Cipher
 	Provider meta.Provider
+	Resolver interface {
+		Load(context.Context, uuid.UUID) (providerconfigs.Bundle, error)
+	}
 }
 
 func (w *MetricsWorker) Work(ctx context.Context, job *river.Job[jobs.MetaMetricsSyncArgs]) error {
 	var providerID string
-	var connectionID uuid.UUID
+	var connectionID, clientID uuid.UUID
 	var cipherText, nonce []byte
-	err := w.Pool.QueryRow(ctx, `SELECT a.provider_campaign_id,c.id,c.token_ciphertext,c.token_nonce FROM ad_campaigns a JOIN meta_ad_accounts aa ON aa.id=a.meta_ad_account_id JOIN meta_connections c ON c.id=aa.connection_id WHERE a.id=$1 AND a.provider_campaign_id IS NOT NULL AND c.status IN ('CONNECTED','EXPIRING') AND (c.token_expires_at IS NULL OR c.token_expires_at>now()) AND (c.data_access_expires_at IS NULL OR c.data_access_expires_at>now())`, job.Args.AdCampaignID).Scan(&providerID, &connectionID, &cipherText, &nonce)
+	err := w.Pool.QueryRow(ctx, `SELECT a.provider_campaign_id,c.id,a.client_id,c.token_ciphertext,c.token_nonce FROM ad_campaigns a JOIN meta_ad_accounts aa ON aa.id=a.meta_ad_account_id JOIN meta_connections c ON c.id=aa.connection_id WHERE a.id=$1 AND a.provider_campaign_id IS NOT NULL AND c.status IN ('CONNECTED','EXPIRING') AND (c.token_expires_at IS NULL OR c.token_expires_at>now()) AND (c.data_access_expires_at IS NULL OR c.data_access_expires_at>now())`, job.Args.AdCampaignID).Scan(&providerID, &connectionID, &clientID, &cipherText, &nonce)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return river.JobCancel(ErrPrerequisite)
 	} else if err != nil {
@@ -160,7 +178,21 @@ func (w *MetricsWorker) Work(ctx context.Context, job *river.Job[jobs.MetaMetric
 	if err != nil {
 		return err
 	}
-	days, err := w.Provider.CampaignInsights(ctx, providerID, string(token))
+	provider := w.Provider
+	if w.Resolver != nil {
+		bundle, resolveErr := w.Resolver.Load(ctx, clientID)
+		if resolveErr != nil {
+			return river.JobCancel(errors.New("client Meta provider configuration is unavailable"))
+		}
+		provider, resolveErr = meta.NewProvider(bundle.DemoMode, bundle.Meta)
+		if resolveErr != nil {
+			return river.JobCancel(resolveErr)
+		}
+	}
+	if provider == nil {
+		return river.JobCancel(errors.New("Meta provider is unavailable"))
+	}
+	days, err := provider.CampaignInsights(ctx, providerID, string(token))
 	if err != nil {
 		return err
 	}

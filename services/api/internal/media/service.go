@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/google/uuid"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/providerconfigs"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/storage"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -84,6 +85,9 @@ type UploadSession struct {
 type Service struct {
 	pool     *pgxpool.Pool
 	store    storage.ObjectStore
+	resolver interface {
+		Load(context.Context, uuid.UUID) (providerconfigs.Bundle, error)
+	}
 	enqueuer MetadataEnqueuer
 }
 
@@ -93,6 +97,30 @@ type MetadataEnqueuer interface {
 
 func NewService(p *pgxpool.Pool, s storage.ObjectStore, enqueuer MetadataEnqueuer) *Service {
 	return &Service{pool: p, store: s, enqueuer: enqueuer}
+}
+
+func NewTenantService(p *pgxpool.Pool, resolver interface {
+	Load(context.Context, uuid.UUID) (providerconfigs.Bundle, error)
+}, enqueuer MetadataEnqueuer) *Service {
+	return &Service{pool: p, resolver: resolver, enqueuer: enqueuer}
+}
+
+func (s *Service) objectStore(ctx context.Context, clientID uuid.UUID) (storage.ObjectStore, error) {
+	if s.resolver == nil {
+		if s.store == nil {
+			return nil, ErrUnavailable
+		}
+		return s.store, nil
+	}
+	bundle, err := s.resolver.Load(ctx, clientID)
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	store, err := storage.NewS3Store(ctx, bundle.R2)
+	if err != nil {
+		return nil, ErrUnavailable
+	}
+	return store, nil
 }
 
 const assetCols = `a.id,a.client_id,a.workspace_id,a.brand_id,a.product_id,a.campaign_id,a.asset_type::text,a.category,a.name,a.folder,a.status::text,a.usage_rights,COALESCE(array_agg(DISTINCT t.tag) FILTER(WHERE t.tag IS NOT NULL),'{}'),v.mime_type,v.file_size_bytes,v.width,v.height,v.duration_ms,a.version,a.expires_at,a.created_at,a.updated_at`
@@ -114,8 +142,9 @@ func (s *Service) List(ctx context.Context, clientID, workspaceID uuid.UUID, sea
 	return items, rows.Err()
 }
 func (s *Service) StartUpload(ctx context.Context, clientID, workspaceID, actorID uuid.UUID, i UploadInput) (UploadSession, error) {
-	if s.store == nil {
-		return UploadSession{}, ErrUnavailable
+	store, e := s.objectStore(ctx, clientID)
+	if e != nil {
+		return UploadSession{}, e
 	}
 	ext, e := validateUpload(&i)
 	if e != nil {
@@ -141,11 +170,11 @@ func (s *Service) StartUpload(ctx context.Context, clientID, workspaceID, actorI
 		if multipartCreated && !persisted && session.MultipartUploadID != nil {
 			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 			defer cancel()
-			_ = s.store.AbortMultipartUpload(cleanupCtx, key, *session.MultipartUploadID)
+			_ = store.AbortMultipartUpload(cleanupCtx, key, *session.MultipartUploadID)
 		}
 	}()
 	if i.SizeBytes > multipartThreshold {
-		providerID, e := s.store.CreateMultipartUpload(ctx, key, i.MimeType, map[string]string{"workspace-id": workspaceID.String(), "asset-id": assetID.String()})
+		providerID, e := store.CreateMultipartUpload(ctx, key, i.MimeType, map[string]string{"workspace-id": workspaceID.String(), "asset-id": assetID.String()})
 		if e != nil {
 			return UploadSession{}, e
 		}
@@ -153,7 +182,7 @@ func (s *Service) StartUpload(ctx context.Context, clientID, workspaceID, actorI
 		session.MultipartUploadID = &providerID
 		multipartCreated = true
 	} else {
-		request, e := s.store.PresignPut(ctx, key, i.MimeType, i.SizeBytes, 30*time.Minute)
+		request, e := store.PresignPut(ctx, key, i.MimeType, i.SizeBytes, 30*time.Minute)
 		if e != nil {
 			return UploadSession{}, e
 		}
@@ -190,8 +219,9 @@ func (s *Service) StartUpload(ctx context.Context, clientID, workspaceID, actorI
 	return session, nil
 }
 func (s *Service) PresignPart(ctx context.Context, clientID, workspaceID, uploadID uuid.UUID, part int32) (storage.PresignedRequest, error) {
-	if s.store == nil {
-		return storage.PresignedRequest{}, ErrUnavailable
+	store, err := s.objectStore(ctx, clientID)
+	if err != nil {
+		return storage.PresignedRequest{}, err
 	}
 	var key, providerID string
 	var expires time.Time
@@ -205,11 +235,12 @@ func (s *Service) PresignPart(ctx context.Context, clientID, workspaceID, upload
 	if time.Now().After(expires) {
 		return storage.PresignedRequest{}, ErrConflict
 	}
-	return s.store.PresignUploadPart(ctx, key, providerID, part, 15*time.Minute)
+	return store.PresignUploadPart(ctx, key, providerID, part, 15*time.Minute)
 }
 func (s *Service) Complete(ctx context.Context, clientID, workspaceID, uploadID, actorID uuid.UUID, parts []storage.UploadedPart) (Asset, error) {
-	if s.store == nil {
-		return Asset{}, ErrUnavailable
+	store, err := s.objectStore(ctx, clientID)
+	if err != nil {
+		return Asset{}, err
 	}
 	var assetID uuid.UUID
 	var key, mime, ext string
@@ -229,10 +260,10 @@ func (s *Service) Complete(ctx context.Context, clientID, workspaceID, uploadID,
 	var meta storage.ObjectMetadata
 	metadataLoaded := false
 	if multipartID != nil {
-		if e = s.store.CompleteMultipartUpload(ctx, key, *multipartID, parts); e != nil {
+		if e = store.CompleteMultipartUpload(ctx, key, *multipartID, parts); e != nil {
 			// The provider can commit the object while the response is lost. A HEAD
 			// check makes the server completion endpoint safe to retry in that case.
-			meta, e = s.store.Head(ctx, key)
+			meta, e = store.Head(ctx, key)
 			if e != nil {
 				return Asset{}, e
 			}
@@ -242,7 +273,7 @@ func (s *Service) Complete(ctx context.Context, clientID, workspaceID, uploadID,
 		return Asset{}, ErrInvalid
 	}
 	if !metadataLoaded {
-		meta, e = s.store.Head(ctx, key)
+		meta, e = store.Head(ctx, key)
 		if e != nil {
 			return Asset{}, e
 		}
@@ -279,8 +310,9 @@ func (s *Service) Get(ctx context.Context, clientID, workspaceID, id uuid.UUID) 
 	return scanAsset(row)
 }
 func (s *Service) Download(ctx context.Context, clientID, workspaceID, id uuid.UUID) (storage.PresignedRequest, error) {
-	if s.store == nil {
-		return storage.PresignedRequest{}, ErrUnavailable
+	store, err := s.objectStore(ctx, clientID)
+	if err != nil {
+		return storage.PresignedRequest{}, err
 	}
 	var key string
 	e := s.pool.QueryRow(ctx, `SELECT v.storage_key FROM media_assets a JOIN media_asset_versions v ON v.media_asset_id=a.id AND v.version=a.current_version WHERE a.id=$1 AND a.client_id=$2 AND a.workspace_id=$3 AND a.deleted_at IS NULL AND a.status<>'REJECTED'`, id, clientID, workspaceID).Scan(&key)
@@ -290,7 +322,7 @@ func (s *Service) Download(ctx context.Context, clientID, workspaceID, id uuid.U
 	if e != nil {
 		return storage.PresignedRequest{}, e
 	}
-	return s.store.PresignGet(ctx, key, 10*time.Minute)
+	return store.PresignGet(ctx, key, 10*time.Minute)
 }
 func (s *Service) Update(ctx context.Context, clientID, workspaceID, id, actorID uuid.UUID, input UpdateInput) (Asset, error) {
 	if err := validateUpdate(&input); err != nil {

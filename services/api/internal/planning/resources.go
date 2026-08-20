@@ -347,6 +347,10 @@ func (s *Service) GetScript(ctx context.Context, clientID, workspaceID, campaign
 }
 
 func (s *Service) UpdateScript(ctx context.Context, clientID, workspaceID, campaignID uuid.UUID, output studioai.ScriptOutput, version int64, actor auth.Principal) (Script, error) {
+	cfg, configErr := s.effectiveConfig(ctx, clientID)
+	if configErr != nil {
+		return Script{}, configErr
+	}
 	planningContext, err := s.planningContext(ctx, clientID, workspaceID, campaignID)
 	if err != nil {
 		return Script{}, err
@@ -375,7 +379,7 @@ func (s *Service) UpdateScript(ctx context.Context, clientID, workspaceID, campa
 	if err != nil {
 		return Script{}, err
 	}
-	if err = insertScriptVersion(ctx, tx, scriptID, next, output, hash, "Operator edit", actor.UserID, studioai.PromptVersion, s.config.OpenAI.Model); err != nil {
+	if err = insertScriptVersion(ctx, tx, scriptID, next, output, hash, "Operator edit", actor.UserID, studioai.PromptVersion, cfg.OpenAI.Model); err != nil {
 		return Script{}, err
 	}
 	if err = invalidateEntity(ctx, tx, "SCRIPT", scriptID, "Script changed"); err != nil {

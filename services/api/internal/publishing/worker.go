@@ -14,6 +14,7 @@ import (
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/jobs"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/meta"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/cryptox"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/providerconfigs"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/storage"
 )
 
@@ -26,6 +27,9 @@ type Worker struct {
 	Store    mediaSigner
 	Cipher   *cryptox.Cipher
 	Provider meta.Provider
+	Resolver interface {
+		Load(context.Context, uuid.UUID) (providerconfigs.Bundle, error)
+	}
 }
 
 func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.SocialPublishArgs]) error {
@@ -40,18 +44,34 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.SocialPublishArgs
 	} else if err != nil {
 		return err
 	}
-	if w.Store == nil || w.Cipher == nil || w.Provider == nil {
+	store, provider := w.Store, w.Provider
+	if w.Resolver != nil {
+		bundle, resolveErr := w.Resolver.Load(ctx, clientID)
+		if resolveErr != nil {
+			return w.fail(ctx, job, errors.New("client provider configuration is unavailable"))
+		}
+		resolvedStore, storeErr := storage.NewS3Store(ctx, bundle.R2)
+		if storeErr != nil {
+			return w.fail(ctx, job, storeErr)
+		}
+		provider, resolveErr = meta.NewProvider(bundle.DemoMode, bundle.Meta)
+		if resolveErr != nil {
+			return w.fail(ctx, job, resolveErr)
+		}
+		store = resolvedStore
+	}
+	if store == nil || w.Cipher == nil || provider == nil {
 		return errors.New("publishing worker is not configured")
 	}
 	token, err := w.Cipher.Decrypt(tokenCipher, nonce, "social-account:"+accountID.String())
 	if err != nil {
 		return w.fail(ctx, job, &meta.ProviderError{Category: "AUTH", Code: "token_decrypt", SafeMessage: "Stored Meta token is unavailable"})
 	}
-	media, err := w.Store.PresignGet(ctx, key, 24*time.Hour)
+	media, err := store.PresignGet(ctx, key, 24*time.Hour)
 	if err != nil {
 		return w.fail(ctx, job, err)
 	}
-	result, err := w.Provider.Publish(ctx, meta.PublishRequest{Platform: platform, PageID: pageID, InstagramID: value(instagramID), MediaURL: media.URL, MediaType: mime, Caption: caption, AccessToken: string(token)})
+	result, err := provider.Publish(ctx, meta.PublishRequest{Platform: platform, PageID: pageID, InstagramID: value(instagramID), MediaURL: media.URL, MediaType: mime, Caption: caption, AccessToken: string(token)})
 	if err != nil {
 		return w.fail(ctx, job, err)
 	}

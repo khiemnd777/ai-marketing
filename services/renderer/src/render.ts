@@ -13,15 +13,12 @@ import type { ObjectReference, RenderManifest } from "@studio/video-templates";
 import QRCode from "qrcode";
 
 type RenderResult = { requestId: string; reused: boolean; outputObjectKey: string; thumbnailObjectKey: string; checksumSha256: string; fileSizeBytes: number; width: number; height: number; fps: number; durationMs: number; codec: string; audioCodec: string | null };
+export type RenderStorage = { endpoint: string; accessKeyId: string; secretAccessKey: string; bucket: string };
 
 let bundlePromise: Promise<string> | undefined;
 
-function storageClient() {
-  const endpoint = process.env.R2_ENDPOINT;
-  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
-  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
-  const bucket = process.env.R2_BUCKET;
-  if (!endpoint || !accessKeyId || !secretAccessKey || !bucket) throw new Error("Renderer object storage is not configured");
+function storageClient(storage: RenderStorage) {
+  const { endpoint, accessKeyId, secretAccessKey, bucket } = storage;
   return { bucket, client: new S3Client({ region: "auto", endpoint, forcePathStyle: endpoint.includes("localhost") || endpoint.includes("minio") || endpoint.includes("127.0.0.1"), credentials: { accessKeyId, secretAccessKey } }) };
 }
 
@@ -91,9 +88,9 @@ async function upload(client: S3Client, bucket: string, key: string, file: strin
   return fileStat.size;
 }
 
-export async function renderFinalVideo(manifest: RenderManifest): Promise<RenderResult> {
+export async function renderFinalVideo(manifest: RenderManifest, storage: RenderStorage): Promise<RenderResult> {
   const requestId = randomUUID();
-  const { client, bucket } = storageClient();
+  const { client, bucket } = storageClient(storage);
   try {
     const head = await client.send(new HeadObjectCommand({ Bucket: bucket, Key: manifest.outputObjectKey }));
     const metadata = head.Metadata;

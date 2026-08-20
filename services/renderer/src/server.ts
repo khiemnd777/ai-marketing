@@ -1,11 +1,20 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { renderManifestSchema } from "@studio/video-templates";
+import { z } from "zod";
 import { verifyManifestSignature } from "./auth.js";
 import { renderFinalVideo } from "./render.js";
 
+const renderStorageSchema = z.object({
+  endpoint: z.url(),
+  accessKeyId: z.string().min(1).max(4096),
+  secretAccessKey: z.string().min(1).max(16384),
+  bucket: z.string().min(1).max(255),
+});
+const renderRequestSchema = z.object({ manifest: renderManifestSchema, storage: renderStorageSchema });
+
 const port = Number.parseInt(process.env.RENDERER_PORT ?? process.env.PORT ?? "8090", 10);
 const host = process.env.RENDERER_HOST ?? process.env.HOST ?? "0.0.0.0";
-const sharedSecret = process.env.RENDERER_SHARED_SECRET ?? "";
+const sharedSecret = process.env.RENDERER_INTERNAL_AUTH_SECRET ?? "";
 
 function safeTraceparent(request: IncomingMessage): string | undefined {
   const value = String(request.headers.traceparent ?? "");
@@ -45,8 +54,9 @@ const server = createServer(async (request, response) => {
         json(response, 401, { type: "https://studio.internal/problems/renderer-auth", title: "Renderer authentication failed", status: 401, detail: "Manifest signature is invalid" });
         return;
       }
-      const manifest = renderManifestSchema.parse(JSON.parse(body));
-      const result = await renderFinalVideo(manifest);
+      const requestBody = renderRequestSchema.parse(JSON.parse(body) as unknown);
+      const manifest = requestBody.manifest;
+      const result = await renderFinalVideo(manifest, requestBody.storage);
       process.stdout.write(`${JSON.stringify({ level: "info", message: "render completed", traceparent, renderId: manifest.renderId, requestId: result.requestId, reused: result.reused, durationMs: Date.now() - startedAt })}\n`);
       json(response, 200, result);
     } catch (error) {

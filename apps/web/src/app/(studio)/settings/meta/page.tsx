@@ -2,16 +2,14 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Link2, RefreshCw, Unplug } from "lucide-react";
-import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import { useStudioScope } from "@/components/studio-scope";
 import { Badge, Button, Card, PageHeader, SkeletonRows, StatePanel } from "@/components/ui";
 import { api } from "@/lib/api";
 import { apiError } from "@/lib/problem";
 
 function MetaSettingsContent() {
-  const params = useSearchParams();
-  const clientId = params.get("clientId") ?? "";
-  const workspaceId = params.get("workspaceId") ?? "";
+  const { clientId, workspaceId } = useStudioScope();
   const scope = { clientId, workspaceId };
   const queryClient = useQueryClient();
   const connection = useQuery({

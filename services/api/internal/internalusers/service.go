@@ -34,6 +34,13 @@ type CreateInput struct {
 	TemporaryPassword string
 }
 
+type UpdateInput struct {
+	Email       string
+	DisplayName string
+	Role        db.InternalUserRole
+	Version     int64
+}
+
 type User struct {
 	ID                     uuid.UUID
 	Email                  string
@@ -133,6 +140,78 @@ func (s *Service) List(ctx context.Context, page, pageSize int) (Page, error) {
 		totalPages = (total + int64(pageSize) - 1) / int64(pageSize)
 	}
 	return Page{Items: items, Number: page, Size: pageSize, TotalItems: total, TotalPages: totalPages}, nil
+}
+
+func (s *Service) Update(ctx context.Context, userID uuid.UUID, input UpdateInput, actor auth.Principal, metadata auth.ClientMetadata) (User, error) {
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	if _, err := mail.ParseAddress(input.Email); err != nil || len(input.Email) > 320 || len(input.DisplayName) < 2 || len(input.DisplayName) > 120 || input.Version < 1 || !validRole(input.Role) {
+		return User{}, ErrInvalidInput
+	}
+	preview, err := s.queries.GetInternalUserByID(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
+	if err != nil {
+		return User{}, fmt.Errorf("load internal user update target: %w", err)
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return User{}, fmt.Errorf("begin internal user update transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	queries := s.queries.WithTx(tx)
+	if preview.Role == db.InternalUserRoleADMIN && preview.Status == db.InternalUserStatusACTIVE && input.Role != db.InternalUserRoleADMIN {
+		if _, err = queries.LockInternalAdminUsers(ctx); err != nil {
+			return User{}, fmt.Errorf("lock administrator set: %w", err)
+		}
+	}
+	current, err := queries.GetInternalUserByIDForUpdate(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrNotFound
+	}
+	if err != nil {
+		return User{}, fmt.Errorf("lock internal user update target: %w", err)
+	}
+	if current.Version != input.Version {
+		return User{}, ErrConflict
+	}
+	if current.Role == db.InternalUserRoleADMIN && current.Status == db.InternalUserStatusACTIVE && input.Role != db.InternalUserRoleADMIN {
+		remaining, countErr := queries.CountOtherActiveAdmins(ctx, userID)
+		if countErr != nil {
+			return User{}, fmt.Errorf("count active administrators: %w", countErr)
+		}
+		if remaining == 0 {
+			return User{}, ErrLastAdmin
+		}
+	}
+	updated, err := queries.UpdateInternalUserProfileVersioned(ctx, db.UpdateInternalUserProfileVersionedParams{
+		Email: input.Email, DisplayName: input.DisplayName, Role: input.Role, ID: userID, Version: input.Version,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return User{}, ErrConflict
+	}
+	if err != nil {
+		var pgError *pgconn.PgError
+		if errors.As(err, &pgError) && pgError.Code == "23505" {
+			return User{}, ErrEmailExists
+		}
+		return User{}, fmt.Errorf("update internal user: %w", err)
+	}
+	actorID := uuid.NullUUID{UUID: actor.UserID, Valid: true}
+	targetID := uuid.NullUUID{UUID: userID, Valid: true}
+	if err = audit.Record(ctx, queries, audit.Event{
+		ActorID: actorID, Action: "internal_user.updated", EntityType: "internal_user", EntityID: targetID,
+		RequestID: metadata.RequestID, IPAddress: metadata.IPAddress, UserAgent: metadata.UserAgent, Outcome: "SUCCESS",
+		Before: map[string]any{"email": current.Email, "displayName": current.DisplayName, "role": current.Role, "version": current.Version},
+		After:  map[string]any{"email": updated.Email, "displayName": updated.DisplayName, "role": updated.Role, "version": updated.Version},
+	}); err != nil {
+		return User{}, fmt.Errorf("write internal user update audit: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return User{}, fmt.Errorf("commit internal user update: %w", err)
+	}
+	return mapUser(updated), nil
 }
 
 func (s *Service) ResetPassword(ctx context.Context, userID uuid.UUID, version int64, temporaryPassword string, actor auth.Principal, metadata auth.ClientMetadata) (User, error) {

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { configureDemoProviders } from "./provider-configuration";
 
 const email = process.env.STUDIO_TEST_EMAIL;
 const password = process.env.STUDIO_TEST_PASSWORD;
@@ -46,7 +47,6 @@ test("complete no-cost product truth to analytics journey", async ({ page }) => 
   await page.getByLabel("Email", { exact: true }).fill(`journey-${suffix}@example.com`);
   await page.getByLabel("Ngành").fill("Travel");
   await page.getByRole("button", { name: "Tạo khách hàng" }).click();
-  await page.getByRole("link", { name: clientName }).click();
   await expect(page).toHaveURL(/\/clients\/[0-9a-f-]+$/);
 
   await page.getByRole("button", { name: "Thêm workspace" }).click();
@@ -57,8 +57,10 @@ test("complete no-cost product truth to analytics journey", async ({ page }) => 
   await expect(workspaceLink).toBeVisible();
   const workspaceHref = await workspaceLink.getAttribute("href");
   const workspaceUrl = new URL(workspaceHref!, page.url());
-  const clientId = workspaceUrl.searchParams.get("clientId")!;
-  const workspaceId = workspaceUrl.pathname.split("/").at(-1)!;
+  const workspaceParts = workspaceUrl.pathname.split("/");
+  const clientId = workspaceParts[2]!;
+  const workspaceId = workspaceParts[4]!;
+  await configureDemoProviders(page, clientId);
   await workspaceLink.click();
 
   await page.getByRole("button", { name: "Thêm thương hiệu" }).click();
@@ -67,7 +69,7 @@ test("complete no-cost product truth to analytics journey", async ({ page }) => 
   await page.getByRole("button", { name: "Tạo thương hiệu" }).click();
   await expect(page.getByRole("link").filter({ hasText: brandName })).toBeVisible();
 
-  await page.goto(`/products?clientId=${clientId}&workspaceId=${workspaceId}`);
+  await page.goto(`/clients/${clientId}/workspaces/${workspaceId}/products`);
   await page.getByRole("button", { name: "Thêm vali" }).click();
   await page.getByLabel("Tên sản phẩm").fill(productName);
   await page.getByLabel("SKU").fill(`SKU-${suffix}`.toUpperCase());
@@ -87,7 +89,7 @@ test("complete no-cost product truth to analytics journey", async ({ page }) => 
   await page.getByRole("button", { name: "Duyệt & khóa" }).click();
   await expect(page.getByText("APPROVED", { exact: true }).first()).toBeVisible();
 
-  await page.goto(`/settings/characters?clientId=${clientId}&workspaceId=${workspaceId}`);
+  await page.goto(`/clients/${clientId}/workspaces/${workspaceId}/characters`);
   for (const [name, description] of [[primaryName, "Professional product host"], [listenerName, "Frequent traveler listening naturally"]] as const) {
     await page.getByRole("button", { name: "Thêm nhân vật" }).click();
     await page.getByLabel("Tên", { exact: true }).fill(name);
@@ -96,15 +98,15 @@ test("complete no-cost product truth to analytics journey", async ({ page }) => 
     await expect(page.getByRole("heading", { name })).toBeVisible();
   }
 
-  await page.goto(`/campaigns?clientId=${clientId}&workspaceId=${workspaceId}`);
+  await page.goto(`/clients/${clientId}/workspaces/${workspaceId}/campaigns`);
   await page.getByRole("button", { name: "Campaign mới" }).click();
   await page.getByLabel("Tên campaign").fill(campaignName);
   await page.getByLabel("Brand").selectOption({ label: brandName });
   await page.getByLabel("Sản phẩm").selectOption({ label: productName });
   await page.getByRole("button", { name: "Tạo brief" }).click();
   await page.getByRole("link", { name: campaignName }).click();
-  await expect(page).toHaveURL(/\/campaigns\/[0-9a-f-]+(?:\?|$)/);
-  const campaignId = new URL(page.url()).pathname.split("/")[2]!;
+  await expect(page).toHaveURL(/\/clients\/[0-9a-f-]+\/workspaces\/[0-9a-f-]+\/campaigns\/[0-9a-f-]+$/);
+  const campaignId = new URL(page.url()).pathname.split("/").at(-1)!;
   expect(campaignId).toMatch(/^[0-9a-f-]+$/);
   await page.getByLabel("Người nói").selectOption({ label: `${primaryName} · NOT_REQUIRED` });
   await page.getByLabel("Người nghe").selectOption({ label: `${listenerName} · NOT_REQUIRED` });
@@ -171,20 +173,20 @@ test("complete no-cost product truth to analytics journey", async ({ page }) => 
   await expect(page.getByRole("heading", { name: "Demo Meta Operator" })).toBeVisible();
   await expect(page.getByText("CONNECTED", { exact: true }).first()).toBeVisible();
 
-  await page.goto(`/campaigns/${campaignId}/publishing?clientId=${clientId}&workspaceId=${workspaceId}`);
+  await page.goto(`/clients/${clientId}/workspaces/${workspaceId}/campaigns/${campaignId}/publishing`);
   await expect(page.getByRole("heading", { name: "Tạo publishing request" })).toBeVisible();
   await clickAndExpect(page, "Gửi để duyệt", /\/social-posts$/, "POST", 201);
   await clickAndExpect(page, "Duyệt publish", /\/social-posts\/[^/]+\/review$/, "PUT", 200);
   await expect(page.getByText("PUBLISHED", { exact: true })).toBeVisible({ timeout: 30_000 });
 
-  await page.goto(`/campaigns/${campaignId}/ads?clientId=${clientId}&workspaceId=${workspaceId}`);
+  await page.goto(`/clients/${clientId}/workspaces/${workspaceId}/campaigns/${campaignId}/ads`);
   await clickAndExpect(page, "Lưu guardrails", /\/meta-ad-guardrails$/, "PUT", 200);
   await clickAndExpect(page, "Tạo để duyệt", /\/meta-ad-campaigns$/, "POST", 201);
   await page.getByLabel("Xác nhận tạo campaign PAUSED").fill("CREATE PAUSED VND 100000");
   await clickAndExpect(page, "Duyệt tạo PAUSED", /\/meta-ad-campaigns\/[^/]+\/review$/, "PUT", 200);
   await expect(page.getByText("PAUSED", { exact: true }).first()).toBeVisible({ timeout: 30_000 });
 
-  await page.goto(`/analytics?clientId=${clientId}&workspaceId=${workspaceId}&campaignId=${campaignId}`);
+  await page.goto(`/clients/${clientId}/workspaces/${workspaceId}/analytics?campaignId=${campaignId}`);
   await expect(page.getByRole("heading", { name: "Analytics & Learning" })).toBeVisible();
   await expect(page.getByText("Chi phí provider", { exact: true })).toBeVisible();
   await expect.poll(async () => {

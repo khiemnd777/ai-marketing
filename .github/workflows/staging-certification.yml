@@ -19,6 +19,7 @@ jobs:
       STUDIO_CERT_API_URL: ${{ vars.STAGING_CERT_API_URL }}
       STUDIO_CERT_WEB_URL: ${{ vars.STAGING_CERT_WEB_URL }}
       STUDIO_CERT_RENDERER_URL: ${{ vars.STAGING_CERT_RENDERER_URL }}
+      STUDIO_CERT_CLIENT_ID: ${{ vars.STAGING_CERT_CLIENT_ID }}
       STUDIO_CERT_ADMIN_EMAIL: ${{ secrets.STAGING_CERT_ADMIN_EMAIL }}
       STUDIO_CERT_ADMIN_PASSWORD: ${{ secrets.STAGING_CERT_ADMIN_PASSWORD }}
       STUDIO_CERT_TIMEOUT_MS: "15000"
@@ -33,7 +34,7 @@ jobs:
         shell: bash
         run: |
           missing=0
-          for name in STUDIO_CERT_API_URL STUDIO_CERT_WEB_URL STUDIO_CERT_ADMIN_EMAIL STUDIO_CERT_ADMIN_PASSWORD; do
+          for name in STUDIO_CERT_API_URL STUDIO_CERT_WEB_URL STUDIO_CERT_CLIENT_ID STUDIO_CERT_ADMIN_EMAIL STUDIO_CERT_ADMIN_PASSWORD; do
             if [ -z "${!name}" ]; then
               echo "::error::Missing required staging Environment value: ${name}"
               missing=1

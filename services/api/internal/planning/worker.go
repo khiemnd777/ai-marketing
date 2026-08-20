@@ -16,6 +16,7 @@ import (
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/gen/db"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/jobs"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/config"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/providerconfigs"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/usage"
 )
 
@@ -24,10 +25,26 @@ type Worker struct {
 	Pool     *pgxpool.Pool
 	Provider studioai.LLMProvider
 	Config   config.Config
+	Resolver interface {
+		Load(context.Context, uuid.UUID) (providerconfigs.Bundle, error)
+	}
 }
 
 func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.AIPlanningArgs]) (workErr error) {
-	if w.Provider == nil {
+	cfg := w.Config
+	provider := w.Provider
+	if w.Resolver != nil {
+		bundle, resolveErr := w.Resolver.Load(ctx, job.Args.ClientID)
+		if resolveErr != nil {
+			return river.JobCancel(errors.New("AI planning provider is not configured"))
+		}
+		cfg = config.Config{DemoMode: bundle.DemoMode, OpenAI: bundle.OpenAI, Seedance: bundle.Seedance}
+		provider, resolveErr = studioai.NewProvider(cfg)
+		if resolveErr != nil {
+			return river.JobCancel(errors.New("AI planning provider is not configured"))
+		}
+	}
+	if provider == nil {
 		return river.JobCancel(errors.New("AI planning provider is not configured"))
 	}
 	tag, err := w.Pool.Exec(ctx, `UPDATE generation_jobs SET status='RUNNING',started_at=now(),error_code=NULL,error_message=NULL WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND campaign_id=$4 AND status='QUEUED'`, job.Args.GenerationJobID, job.Args.ClientID, job.Args.WorkspaceID, job.Args.CampaignID)
@@ -58,7 +75,7 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.AIPlanningArgs]) 
 		}
 	}()
 
-	service := NewService(w.Pool, nil, w.Config)
+	service := NewService(w.Pool, nil, cfg)
 	planningContext, err := service.planningContext(ctx, job.Args.ClientID, job.Args.WorkspaceID, job.Args.CampaignID)
 	if err != nil {
 		return river.JobCancel(err)
@@ -70,7 +87,7 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.AIPlanningArgs]) 
 		return err
 	}
 	requestID = uuid.New()
-	if _, err = w.Pool.Exec(ctx, `INSERT INTO provider_requests(id,client_id,workspace_id,campaign_id,provider,operation,model,prompt_version,input_hash,estimated_cost_usd,created_by) VALUES($1,$2,$3,$4,$5,$6::generation_operation,$7,$8,$9,$10,$11)`, requestID, job.Args.ClientID, job.Args.WorkspaceID, job.Args.CampaignID, providerName(w.Config), job.Args.Operation, w.Config.OpenAI.Model, studioai.PromptVersion, inputHash, estimatedCost, actorID); err != nil {
+	if _, err = w.Pool.Exec(ctx, `INSERT INTO provider_requests(id,client_id,workspace_id,campaign_id,provider,operation,model,prompt_version,input_hash,estimated_cost_usd,created_by) VALUES($1,$2,$3,$4,$5,$6::generation_operation,$7,$8,$9,$10,$11)`, requestID, job.Args.ClientID, job.Args.WorkspaceID, job.Args.CampaignID, providerName(cfg), job.Args.Operation, cfg.OpenAI.Model, studioai.PromptVersion, inputHash, estimatedCost, actorID); err != nil {
 		return err
 	}
 
@@ -78,7 +95,7 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.AIPlanningArgs]) 
 	var metadata studioai.Metadata
 	switch job.Args.Operation {
 	case "CONCEPTS":
-		value, result, callErr := w.Provider.GenerateConcepts(ctx, studioai.ConceptInput{Context: planningContext})
+		value, result, callErr := provider.GenerateConcepts(ctx, studioai.ConceptInput{Context: planningContext})
 		if callErr != nil {
 			return providerFailure(callErr)
 		}
@@ -87,7 +104,7 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.AIPlanningArgs]) 
 		}
 		output, metadata = value, result
 	case "CONTENT":
-		value, result, callErr := w.Provider.GenerateContent(ctx, studioai.ContentInput{Context: planningContext})
+		value, result, callErr := provider.GenerateContent(ctx, studioai.ContentInput{Context: planningContext})
 		if callErr != nil {
 			return providerFailure(callErr)
 		}
@@ -96,7 +113,7 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.AIPlanningArgs]) 
 		}
 		output, metadata = value, result
 	case "SCRIPT":
-		value, result, callErr := w.Provider.GenerateScript(ctx, studioai.ScriptInput{Context: planningContext})
+		value, result, callErr := provider.GenerateScript(ctx, studioai.ScriptInput{Context: planningContext})
 		if callErr != nil {
 			return providerFailure(callErr)
 		}
@@ -116,7 +133,7 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.AIPlanningArgs]) 
 			return err
 		}
 		input := studioai.SceneInput{Context: planningContext, Script: script, SpeakerCharacterID: primaryID, ListenerCharacterID: listenerID}
-		value, result, callErr := w.Provider.GenerateScenes(ctx, input)
+		value, result, callErr := provider.GenerateScenes(ctx, input)
 		if callErr != nil {
 			return providerFailure(callErr)
 		}
@@ -127,7 +144,7 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.AIPlanningArgs]) 
 	default:
 		return river.JobCancel(ErrInvalid)
 	}
-	return w.persist(ctx, job, requestID, actorID, estimatedCost, output, metadata)
+	return w.persist(ctx, job, requestID, actorID, estimatedCost, output, metadata, cfg)
 }
 
 func providerFailure(err error) error {
@@ -138,12 +155,12 @@ func providerFailure(err error) error {
 	return err
 }
 
-func (w *Worker) persist(ctx context.Context, job *river.Job[jobs.AIPlanningArgs], requestID, actorID uuid.UUID, estimatedCost float64, output any, metadata studioai.Metadata) error {
+func (w *Worker) persist(ctx context.Context, job *river.Job[jobs.AIPlanningArgs], requestID, actorID uuid.UUID, estimatedCost float64, output any, metadata studioai.Metadata, cfg config.Config) error {
 	hash, normalized, err := studioai.Hash(output)
 	if err != nil {
 		return err
 	}
-	actualCost := float64(metadata.InputTokens)/1_000_000*w.Config.OpenAI.InputUSDPer1M + float64(metadata.OutputTokens)/1_000_000*w.Config.OpenAI.OutputUSDPer1M
+	actualCost := float64(metadata.InputTokens)/1_000_000*cfg.OpenAI.InputUSDPer1M + float64(metadata.OutputTokens)/1_000_000*cfg.OpenAI.OutputUSDPer1M
 	tx, err := w.Pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -190,7 +207,7 @@ func (w *Worker) persist(ctx context.Context, job *river.Job[jobs.AIPlanningArgs
 	if err = audit.Record(ctx, db.New(tx), audit.Event{Action: "ai_planning.generated", EntityType: "campaign", EntityID: valid(job.Args.CampaignID), ClientID: valid(job.Args.ClientID), WorkspaceID: valid(job.Args.WorkspaceID), RequestID: fmt.Sprintf("river:%d", job.ID), Outcome: "SUCCESS", After: summary, Metadata: map[string]any{"operation": job.Args.Operation, "providerRequestId": requestID, "outputHash": hash, "actualCostUsd": actualCost}}); err != nil {
 		return err
 	}
-	if err = usage.Record(ctx, tx, usage.Entry{Provider: providerName(w.Config), Model: metadata.Model, RequestReference: requestID.String(), Operation: job.Args.Operation, ClientID: &job.Args.ClientID, WorkspaceID: &job.Args.WorkspaceID, CampaignID: &job.Args.CampaignID, InputUnits: metadata.InputTokens, OutputUnits: metadata.OutputTokens, ProviderReportedCost: &actualCost, EstimatedCost: estimatedCost, Currency: "USD", Outcome: "SUCCESS", Category: "LLM", Metadata: map[string]any{"promptVersion": metadata.PromptVersion, "providerRequestId": metadata.RequestID}}); err != nil {
+	if err = usage.Record(ctx, tx, usage.Entry{Provider: providerName(cfg), Model: metadata.Model, RequestReference: requestID.String(), Operation: job.Args.Operation, ClientID: &job.Args.ClientID, WorkspaceID: &job.Args.WorkspaceID, CampaignID: &job.Args.CampaignID, InputUnits: metadata.InputTokens, OutputUnits: metadata.OutputTokens, ProviderReportedCost: &actualCost, EstimatedCost: estimatedCost, Currency: "USD", Outcome: "SUCCESS", Category: "LLM", Metadata: map[string]any{"promptVersion": metadata.PromptVersion, "providerRequestId": metadata.RequestID}}); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

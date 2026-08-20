@@ -159,6 +159,9 @@ func (s *Service) UpdateFact(ctx context.Context, clientID, workspaceID, product
 	if e = insertFactVersion(ctx, tx, item, raw, i.ChangeSummary, actorID); e != nil {
 		return Fact{}, e
 	}
+	if e = invalidateProductApprovals(ctx, tx, clientID, workspaceID, productID, actorID, "Product Truth fact changed"); e != nil {
+		return Fact{}, e
+	}
 	if e = tx.Commit(ctx); e != nil {
 		return Fact{}, e
 	}
@@ -269,6 +272,57 @@ func (s *Service) CreateClaim(ctx context.Context, clientID, workspaceID, produc
 	}
 	return item, nil
 }
+
+func (s *Service) UpdateClaim(ctx context.Context, clientID, workspaceID, productID, id, actorID uuid.UUID, i ClaimInput) (Claim, error) {
+	if e := validateClaim(&i, true); e != nil {
+		return Claim{}, e
+	}
+	tx, e := s.pool.Begin(ctx)
+	if e != nil {
+		return Claim{}, e
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var currentVersion int64
+	e = tx.QueryRow(ctx, `SELECT version FROM product_claims WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND product_id=$4 FOR UPDATE`, id, clientID, workspaceID, productID).Scan(&currentVersion)
+	if errors.Is(e, pgx.ErrNoRows) {
+		return Claim{}, ErrNotFound
+	}
+	if e != nil {
+		return Claim{}, e
+	}
+	if currentVersion != i.Version {
+		return Claim{}, ErrConflict
+	}
+	var item Claim
+	e = tx.QueryRow(ctx, `UPDATE product_claims SET claim_kind=$5::claim_kind,claim_text=$6,rationale=$7,status='DRAFT',approved_by=NULL,approved_at=NULL,version=version+1,updated_by=$8,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND product_id=$4 RETURNING id,product_id,claim_kind::text,claim_text,rationale,status::text,version,approved_at,created_at,updated_at`, id, clientID, workspaceID, productID, i.ClaimKind, i.ClaimText, i.Rationale, actorID).Scan(&item.ID, &item.ProductID, &item.ClaimKind, &item.ClaimText, &item.Rationale, &item.Status, &item.Version, &item.ApprovedAt, &item.CreatedAt, &item.UpdatedAt)
+	if e != nil {
+		return Claim{}, e
+	}
+	if _, e = tx.Exec(ctx, `DELETE FROM product_claim_sources WHERE claim_id=$1`, id); e != nil {
+		return Claim{}, e
+	}
+	for _, factID := range i.FactIDs {
+		if _, e = tx.Exec(ctx, `INSERT INTO product_claim_sources(claim_id,fact_id,evidence_excerpt) SELECT $1,id,source_excerpt FROM product_facts WHERE id=$2 AND product_id=$3 AND client_id=$4 AND workspace_id=$5 AND status='APPROVED'`, item.ID, factID, productID, clientID, workspaceID); e != nil {
+			return Claim{}, e
+		}
+	}
+	for _, assetID := range i.MediaAssetIDs {
+		if _, e = tx.Exec(ctx, `INSERT INTO product_claim_sources(claim_id,media_asset_id) SELECT $1,id FROM media_assets WHERE id=$2 AND product_id=$3 AND client_id=$4 AND workspace_id=$5 AND deleted_at IS NULL`, item.ID, assetID, productID, clientID, workspaceID); e != nil {
+			return Claim{}, e
+		}
+	}
+	if _, e = tx.Exec(ctx, `INSERT INTO product_claim_versions(product_claim_id,version,claim_text,rationale,change_summary,created_by)VALUES($1,$2,$3,$4,$5,$6)`, item.ID, item.Version, item.ClaimText, item.Rationale, i.ChangeSummary, actorID); e != nil {
+		return Claim{}, e
+	}
+	if e = invalidateProductApprovals(ctx, tx, clientID, workspaceID, productID, actorID, "Product Truth claim changed"); e != nil {
+		return Claim{}, e
+	}
+	if e = tx.Commit(ctx); e != nil {
+		return Claim{}, e
+	}
+	return item, nil
+}
+
 func (s *Service) ApproveClaim(ctx context.Context, clientID, workspaceID, productID, id uuid.UUID, actor auth.Principal, metadata auth.ClientMetadata, version int64) (Claim, error) {
 	tx, e := s.pool.Begin(ctx)
 	if e != nil {
@@ -334,4 +388,34 @@ func mapConflict(e error) error {
 		return ErrConflict
 	}
 	return e
+}
+
+func invalidateProductApprovals(ctx context.Context, tx pgx.Tx, clientID, workspaceID, productID, actorID uuid.UUID, reason string) error {
+	if _, err := tx.Exec(ctx, `WITH affected AS (
+		SELECT id FROM campaigns WHERE client_id=$1 AND workspace_id=$2 AND product_id=$3
+	), changed AS (
+		UPDATE approvals a SET invalidated_at=now(),invalidation_reason=$5
+		FROM affected x WHERE a.campaign_id=x.id AND a.invalidated_at IS NULL
+		RETURNING a.id,a.entity_version,a.entity_hash
+	) INSERT INTO approval_events(approval_id,event_type,actor_id,entity_version,entity_hash,notes)
+	SELECT id,'INVALIDATED',$4,entity_version,entity_hash,$5 FROM changed`, clientID, workspaceID, productID, actorID, reason); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE campaigns SET status='DRAFT',selected_concept_id=NULL,version=version+1,updated_by=$4,updated_at=now() WHERE client_id=$1 AND workspace_id=$2 AND product_id=$3 AND status<>'ARCHIVED'`, clientID, workspaceID, productID, actorID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE campaign_concepts x SET status='DRAFT',locked_at=NULL,locked_by=NULL,version=x.version+1,updated_by=$4,updated_at=now() FROM campaigns c WHERE x.campaign_id=c.id AND c.client_id=$1 AND c.workspace_id=$2 AND c.product_id=$3 AND x.status IN('APPROVED','LOCKED')`, clientID, workspaceID, productID, actorID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE campaign_content_variants x SET status='DRAFT',approved_at=NULL,approved_by=NULL,version=x.version+1,updated_by=$4,updated_at=now() FROM campaigns c WHERE x.campaign_id=c.id AND c.client_id=$1 AND c.workspace_id=$2 AND c.product_id=$3 AND x.status='APPROVED'`, clientID, workspaceID, productID, actorID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE scripts x SET status='DRAFT',approved_at=NULL,approved_by=NULL,version=x.version+1,updated_by=$4,updated_at=now() FROM campaigns c WHERE x.campaign_id=c.id AND c.client_id=$1 AND c.workspace_id=$2 AND c.product_id=$3 AND x.status='APPROVED'`, clientID, workspaceID, productID, actorID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE scenes x SET status='DRAFT',approved_at=NULL,approved_by=NULL,version=x.version+1,updated_by=$4,updated_at=now() FROM campaigns c WHERE x.campaign_id=c.id AND c.client_id=$1 AND c.workspace_id=$2 AND c.product_id=$3 AND x.status='APPROVED'`, clientID, workspaceID, productID, actorID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE meta_ad_actions x SET status='REJECTED',reviewed_by=$4,review_notes=$5,reviewed_at=now(),version=x.version+1 FROM ad_campaigns a JOIN campaigns c ON c.id=a.campaign_id WHERE x.ad_campaign_id=a.id AND c.client_id=$1 AND c.workspace_id=$2 AND c.product_id=$3 AND x.action='CREATE_PAUSED' AND x.status IN('PENDING_APPROVAL','APPROVED','QUEUED')`, clientID, workspaceID, productID, actorID, reason)
+	return err
 }

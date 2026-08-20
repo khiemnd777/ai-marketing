@@ -15,6 +15,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/audit"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/auth"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/gen/db"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/jobs"
 )
 
@@ -68,6 +71,7 @@ type CampaignInput struct {
 	UTMParameters         map[string]string `json:"utmParameters"`
 	ConversionEvent       *string           `json:"conversionEvent"`
 	Creative              CreativeInput     `json:"creative"`
+	Version               int64             `json:"version"`
 }
 type Campaign struct {
 	ID                    uuid.UUID         `json:"id"`
@@ -228,6 +232,102 @@ func (s *Service) Create(ctx context.Context, clientID, workspaceID, campaignID,
 	}
 	item, err := get(ctx, tx, clientID, workspaceID, campaignID, id)
 	if err != nil {
+		return Campaign{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Campaign{}, err
+	}
+	return item, nil
+}
+
+func (s *Service) Update(ctx context.Context, clientID, workspaceID, campaignID, id uuid.UUID, actor auth.Principal, metadata auth.ClientMetadata, input CampaignInput) (Campaign, error) {
+	input.Name = strings.TrimSpace(input.Name)
+	input.Objective = strings.TrimSpace(input.Objective)
+	input.Currency = strings.ToUpper(strings.TrimSpace(input.Currency))
+	if input.Version < 1 || input.Name == "" || input.Objective == "" || input.MetaAdAccountID == uuid.Nil || input.SocialAccountID == uuid.Nil || input.CampaignSpendCapMinor <= 0 || ((input.DailyBudgetMinor == nil) == (input.LifetimeBudgetMinor == nil)) || len(input.Creative.PrimaryTextVariants) == 0 || len(input.Creative.HeadlineVariants) == 0 || len(input.Creative.CTAVariants) == 0 {
+		return Campaign{}, ErrInvalid
+	}
+	destination, err := url.Parse(input.DestinationURL)
+	if err != nil || destination.Scheme != "https" || destination.Host == "" {
+		return Campaign{}, ErrInvalid
+	}
+	budget := value64(input.DailyBudgetMinor)
+	if budget == 0 {
+		budget = value64(input.LifetimeBudgetMinor)
+	}
+	if budget <= 0 || budget > input.CampaignSpendCapMinor {
+		return Campaign{}, ErrGuardrail
+	}
+	if input.EndsAt != nil && input.StartsAt != nil && !input.EndsAt.After(*input.StartsAt) {
+		return Campaign{}, ErrInvalid
+	}
+	if input.Audience.AgeMin < 18 || input.Audience.AgeMax > 65 || input.Audience.AgeMax < input.Audience.AgeMin || len(input.Audience.Countries) == 0 {
+		return Campaign{}, ErrInvalid
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Campaign{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	before, err := scanCampaign(tx.QueryRow(ctx, campaignSelect+` WHERE a.id=$1 AND a.client_id=$2 AND a.workspace_id=$3 AND a.campaign_id=$4 FOR UPDATE`, id, clientID, workspaceID, campaignID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Campaign{}, ErrNotFound
+	}
+	if err != nil {
+		return Campaign{}, err
+	}
+	if before.Version != input.Version || before.ProviderCampaignID != nil || !map[string]bool{"DRAFT": true, "APPROVAL_REQUIRED": true}[before.Status] {
+		return Campaign{}, ErrConflict
+	}
+	var workspaceCap, defaultCap, allocatedCap int64
+	var currency string
+	var accountValid, creativeValid, campaignApproved, pixelValid bool
+	err = tx.QueryRow(ctx, `SELECT g.workspace_spend_cap_minor,g.default_campaign_spend_cap_minor,g.currency,COALESCE((SELECT sum(a.campaign_spend_cap_minor) FROM ad_campaigns a WHERE a.workspace_id=$2 AND a.id<>$8 AND a.status NOT IN ('ARCHIVED','FAILED')),0),EXISTS(SELECT 1 FROM meta_ad_accounts a JOIN meta_connections c ON c.id=a.connection_id WHERE a.id=$4 AND a.client_id=$1 AND a.workspace_id=$2 AND a.currency=g.currency AND c.status IN ('CONNECTED','EXPIRING') AND (c.token_expires_at IS NULL OR c.token_expires_at>now()) AND (c.data_access_expires_at IS NULL OR c.data_access_expires_at>now())),EXISTS(SELECT 1 FROM media_assets m WHERE m.id=$6 AND m.client_id=$1 AND m.workspace_id=$2 AND m.deleted_at IS NULL),EXISTS(SELECT 1 FROM campaigns c JOIN video_projects p ON p.campaign_id=c.id JOIN render_jobs r ON r.id=p.selected_render_job_id AND r.status='APPROVED' WHERE c.id=$3 AND c.client_id=$1 AND c.workspace_id=$2 AND c.status='APPROVED' AND EXISTS(SELECT 1 FROM social_accounts s WHERE s.id=$5 AND s.client_id=$1 AND s.workspace_id=$2 AND s.status IN ('CONNECTED','EXPIRING'))),($7::uuid IS NULL OR EXISTS(SELECT 1 FROM meta_pixels px WHERE px.id=$7 AND px.meta_ad_account_id=$4)) FROM meta_ad_guardrails g WHERE g.client_id=$1 AND g.workspace_id=$2`, clientID, workspaceID, campaignID, input.MetaAdAccountID, input.SocialAccountID, input.Creative.MediaAssetID, input.MetaPixelID, id).Scan(&workspaceCap, &defaultCap, &currency, &allocatedCap, &accountValid, &creativeValid, &campaignApproved, &pixelValid)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Campaign{}, ErrPrerequisite
+	}
+	if err != nil {
+		return Campaign{}, err
+	}
+	if input.Currency != currency || allocatedCap+input.CampaignSpendCapMinor > workspaceCap || input.CampaignSpendCapMinor > defaultCap || !accountValid || !creativeValid || !campaignApproved || !pixelValid {
+		return Campaign{}, ErrGuardrail
+	}
+	audienceRaw, _ := json.Marshal(input.Audience)
+	utmRaw, _ := json.Marshal(input.UTMParameters)
+	hash := campaignHash(input)
+	_, err = tx.Exec(ctx, `UPDATE ad_campaigns SET meta_ad_account_id=$5,social_account_id=$6,meta_pixel_id=$7,name=$8,objective=$9,daily_budget_minor=$10,lifetime_budget_minor=$11,campaign_spend_cap_minor=$12,currency=$13,starts_at=$14,ends_at=$15,audience=$16,placements=$17,destination_url=$18,utm_parameters=$19,conversion_event=$20,status='APPROVAL_REQUIRED',campaign_hash=$21,last_error_code=NULL,last_error_message=NULL,version=version+1,updated_by=$22,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND campaign_id=$4 AND version=$23`, id, clientID, workspaceID, campaignID, input.MetaAdAccountID, input.SocialAccountID, input.MetaPixelID, input.Name, input.Objective, input.DailyBudgetMinor, input.LifetimeBudgetMinor, input.CampaignSpendCapMinor, input.Currency, input.StartsAt, input.EndsAt, audienceRaw, input.Placements, input.DestinationURL, utmRaw, input.ConversionEvent, hash, actor.UserID, input.Version)
+	if err != nil {
+		return Campaign{}, err
+	}
+	texts, _ := json.Marshal(input.Creative.PrimaryTextVariants)
+	headlines, _ := json.Marshal(input.Creative.HeadlineVariants)
+	ctas, _ := json.Marshal(input.Creative.CTAVariants)
+	preview, _ := json.Marshal(map[string]any{"destinationUrl": input.DestinationURL, "platform": "Meta", "status": "PAUSED"})
+	if _, err = tx.Exec(ctx, `UPDATE ad_creatives SET media_asset_id=$2,thumbnail_asset_id=$3,primary_text_variants=$4,headline_variants=$5,cta_variants=$6,preview_spec=$7,updated_at=now() WHERE ad_campaign_id=$1`, id, input.Creative.MediaAssetID, input.Creative.ThumbnailAssetID, texts, headlines, ctas, preview); err != nil {
+		return Campaign{}, err
+	}
+	if _, err = tx.Exec(ctx, `WITH changed AS (
+		UPDATE approvals SET invalidated_at=now(),invalidation_reason='Meta Ads draft changed'
+		WHERE entity_type='AD_CAMPAIGN' AND entity_id=$1 AND invalidated_at IS NULL
+		RETURNING id,entity_version,entity_hash
+	) INSERT INTO approval_events(approval_id,event_type,actor_id,entity_version,entity_hash,notes)
+	SELECT id,'INVALIDATED',$2,entity_version,entity_hash,'Meta Ads draft changed' FROM changed`, id, actor.UserID); err != nil {
+		return Campaign{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE meta_ad_actions SET status='REJECTED',reviewed_by=$2,review_notes='Superseded by draft edit',reviewed_at=now(),version=version+1 WHERE ad_campaign_id=$1 AND action='CREATE_PAUSED' AND status='PENDING_APPROVAL'`, id, actor.UserID); err != nil {
+		return Campaign{}, err
+	}
+	actionID := uuid.New()
+	actionHash := digest(id.String() + "|CREATE_PAUSED|" + hash)
+	editKey := fmt.Sprintf("edit:%s:%d", id, before.Version+1)
+	if _, err = tx.Exec(ctx, `INSERT INTO meta_ad_actions(id,ad_campaign_id,action,status,requested_budget_minor,confirmation_text,action_hash,idempotency_key,requested_by)VALUES($1,$2,'CREATE_PAUSED','PENDING_APPROVAL',$3,'',$4,$5,$6)`, actionID, id, budget, actionHash, editKey, actor.UserID); err != nil {
+		return Campaign{}, err
+	}
+	item, err := get(ctx, tx, clientID, workspaceID, campaignID, id)
+	if err != nil {
+		return Campaign{}, err
+	}
+	if err = audit.Record(ctx, db.New(tx), audit.Event{ActorID: uuid.NullUUID{UUID: actor.UserID, Valid: true}, Action: "meta_ad_campaign.updated", EntityType: "ad_campaign", EntityID: uuid.NullUUID{UUID: id, Valid: true}, ClientID: uuid.NullUUID{UUID: clientID, Valid: true}, WorkspaceID: uuid.NullUUID{UUID: workspaceID, Valid: true}, RequestID: metadata.RequestID, IPAddress: metadata.IPAddress, UserAgent: metadata.UserAgent, Outcome: "SUCCESS", Before: before, After: item}); err != nil {
 		return Campaign{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -519,6 +619,7 @@ func getAction(ctx context.Context, q queryer, campaignID, actionID uuid.UUID) (
 	return a, err
 }
 func campaignHash(input CampaignInput) string {
+	input.Version = 0
 	raw, _ := json.Marshal(input)
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])

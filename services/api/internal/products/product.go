@@ -147,7 +147,7 @@ func (s *Service) Update(ctx context.Context, clientID, workspaceID, id, actorID
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var next int32
-	e = tx.QueryRow(ctx, `UPDATE products SET brand_id=$4,name=$5,sku=$6,model=$7,category=$8,vertical_key=$9,current_version=current_version+1,version=version+1,updated_by=$10,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND version=$11 AND status<>'ARCHIVED' AND ($4::uuid IS NULL OR EXISTS(SELECT 1 FROM brands WHERE id=$4 AND client_id=$2 AND workspace_id=$3 AND status='ACTIVE')) RETURNING current_version`, id, clientID, workspaceID, i.BrandID, i.Name, i.SKU, i.Model, i.Category, i.VerticalKey, actorID, i.Version).Scan(&next)
+	e = tx.QueryRow(ctx, `UPDATE products SET brand_id=$4,name=$5,sku=$6,model=$7,category=$8,vertical_key=$9,status='DRAFT',archived_at=NULL,current_version=current_version+1,version=version+1,updated_by=$10,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND version=$11 AND status<>'ARCHIVED' AND ($4::uuid IS NULL OR EXISTS(SELECT 1 FROM brands WHERE id=$4 AND client_id=$2 AND workspace_id=$3 AND status='ACTIVE')) RETURNING current_version`, id, clientID, workspaceID, i.BrandID, i.Name, i.SKU, i.Model, i.Category, i.VerticalKey, actorID, i.Version).Scan(&next)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return Product{}, ErrConflict
 	}
@@ -160,6 +160,34 @@ func (s *Service) Update(ctx context.Context, clientID, workspaceID, id, actorID
 	digest := sha256.Sum256(raw)
 	_, e = tx.Exec(ctx, `INSERT INTO product_vertical_data(product_id,client_id,workspace_id,vertical_key,schema_version,data,data_hash,validated_at,created_by)VALUES($1,$2,$3,$4,$5,$6,$7,now(),$8)`, id, clientID, workspaceID, i.VerticalKey, pack.SchemaVersion, raw, hex.EncodeToString(digest[:]), actorID)
 	if e != nil {
+		return Product{}, e
+	}
+	if _, e = tx.Exec(ctx, `WITH affected AS (
+		SELECT id FROM campaigns WHERE client_id=$1 AND workspace_id=$2 AND product_id=$3
+	), changed AS (
+		UPDATE approvals a SET invalidated_at=now(),invalidation_reason='Product profile changed'
+		FROM affected x WHERE a.campaign_id=x.id AND a.invalidated_at IS NULL
+		RETURNING a.id,a.entity_version,a.entity_hash
+	) INSERT INTO approval_events(approval_id,event_type,actor_id,entity_version,entity_hash,notes)
+	SELECT id,'INVALIDATED',$4,entity_version,entity_hash,'Product profile changed' FROM changed`, clientID, workspaceID, id, actorID); e != nil {
+		return Product{}, e
+	}
+	if _, e = tx.Exec(ctx, `UPDATE campaigns SET status='DRAFT',selected_concept_id=NULL,version=version+1,updated_by=$4,updated_at=now() WHERE client_id=$1 AND workspace_id=$2 AND product_id=$3 AND status<>'ARCHIVED'`, clientID, workspaceID, id, actorID); e != nil {
+		return Product{}, e
+	}
+	if _, e = tx.Exec(ctx, `UPDATE campaign_concepts x SET status='DRAFT',locked_at=NULL,locked_by=NULL,version=x.version+1,updated_by=$4,updated_at=now() FROM campaigns c WHERE x.campaign_id=c.id AND c.client_id=$1 AND c.workspace_id=$2 AND c.product_id=$3 AND x.status IN('APPROVED','LOCKED')`, clientID, workspaceID, id, actorID); e != nil {
+		return Product{}, e
+	}
+	if _, e = tx.Exec(ctx, `UPDATE campaign_content_variants x SET status='DRAFT',approved_at=NULL,approved_by=NULL,version=x.version+1,updated_by=$4,updated_at=now() FROM campaigns c WHERE x.campaign_id=c.id AND c.client_id=$1 AND c.workspace_id=$2 AND c.product_id=$3 AND x.status='APPROVED'`, clientID, workspaceID, id, actorID); e != nil {
+		return Product{}, e
+	}
+	if _, e = tx.Exec(ctx, `UPDATE scripts x SET status='DRAFT',approved_at=NULL,approved_by=NULL,version=x.version+1,updated_by=$4,updated_at=now() FROM campaigns c WHERE x.campaign_id=c.id AND c.client_id=$1 AND c.workspace_id=$2 AND c.product_id=$3 AND x.status='APPROVED'`, clientID, workspaceID, id, actorID); e != nil {
+		return Product{}, e
+	}
+	if _, e = tx.Exec(ctx, `UPDATE scenes x SET status='DRAFT',approved_at=NULL,approved_by=NULL,version=x.version+1,updated_by=$4,updated_at=now() FROM campaigns c WHERE x.campaign_id=c.id AND c.client_id=$1 AND c.workspace_id=$2 AND c.product_id=$3 AND x.status='APPROVED'`, clientID, workspaceID, id, actorID); e != nil {
+		return Product{}, e
+	}
+	if _, e = tx.Exec(ctx, `UPDATE meta_ad_actions x SET status='REJECTED',reviewed_by=$4,review_notes='Product profile changed',reviewed_at=now(),version=x.version+1 FROM ad_campaigns a JOIN campaigns c ON c.id=a.campaign_id WHERE x.ad_campaign_id=a.id AND c.client_id=$1 AND c.workspace_id=$2 AND c.product_id=$3 AND x.action='CREATE_PAUSED' AND x.status IN('PENDING_APPROVAL','APPROVED','QUEUED')`, clientID, workspaceID, id, actorID); e != nil {
 		return Product{}, e
 	}
 	if e = tx.Commit(ctx); e != nil {

@@ -18,6 +18,7 @@ import (
 	studioai "github.com/internal/ai-product-marketing-studio/services/api/internal/ai"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/jobs"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/config"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/providerconfigs"
 )
 
 var (
@@ -67,13 +68,37 @@ type Service struct {
 	pool     *pgxpool.Pool
 	enqueuer Enqueuer
 	config   config.Config
+	resolver interface {
+		Load(context.Context, uuid.UUID) (providerconfigs.Bundle, error)
+	}
 }
 
 func NewService(pool *pgxpool.Pool, enqueuer Enqueuer, cfg config.Config) *Service {
 	return &Service{pool: pool, enqueuer: enqueuer, config: cfg}
 }
 
+func NewTenantService(pool *pgxpool.Pool, enqueuer Enqueuer, resolver interface {
+	Load(context.Context, uuid.UUID) (providerconfigs.Bundle, error)
+}) *Service {
+	return &Service{pool: pool, enqueuer: enqueuer, resolver: resolver}
+}
+
+func (s *Service) effectiveConfig(ctx context.Context, clientID uuid.UUID) (config.Config, error) {
+	if s.resolver == nil {
+		return s.config, nil
+	}
+	bundle, err := s.resolver.Load(ctx, clientID)
+	if err != nil || strings.TrimSpace(bundle.OpenAI.Model) == "" || (!bundle.DemoMode && bundle.OpenAI.Validate() != nil) {
+		return config.Config{}, ErrPrerequisite
+	}
+	return config.Config{DemoMode: bundle.DemoMode, OpenAI: bundle.OpenAI, Seedance: bundle.Seedance, R2: bundle.R2, Meta: bundle.Meta, Renderer: bundle.Renderer}, nil
+}
+
 func (s *Service) Estimate(ctx context.Context, clientID, workspaceID, campaignID uuid.UUID, operation string) (CostEstimate, error) {
+	cfg, err := s.effectiveConfig(ctx, clientID)
+	if err != nil {
+		return CostEstimate{}, err
+	}
 	operation = strings.ToUpper(strings.TrimSpace(operation))
 	inputTokens, outputTokens, err := tokenEstimate(operation)
 	if err != nil {
@@ -89,13 +114,13 @@ func (s *Service) Estimate(ctx context.Context, clientID, workspaceID, campaignI
 	if operation == "SCENES" {
 		videoSeconds = duration
 	}
-	cost := float64(inputTokens)/1_000_000*s.config.OpenAI.InputUSDPer1M + float64(outputTokens)/1_000_000*s.config.OpenAI.OutputUSDPer1M + float64(videoSeconds)*s.config.Seedance.USDPerSecond
-	assumptions := map[string]any{"openaiInputUsdPer1M": s.config.OpenAI.InputUSDPer1M, "openaiOutputUsdPer1M": s.config.OpenAI.OutputUSDPer1M, "seedanceUsdPerSecond": s.config.Seedance.USDPerSecond, "providerPricingConfigured": s.config.OpenAI.InputUSDPer1M > 0 || s.config.OpenAI.OutputUSDPer1M > 0 || s.config.Seedance.USDPerSecond > 0}
+	cost := float64(inputTokens)/1_000_000*cfg.OpenAI.InputUSDPer1M + float64(outputTokens)/1_000_000*cfg.OpenAI.OutputUSDPer1M + float64(videoSeconds)*cfg.Seedance.USDPerSecond
+	assumptions := map[string]any{"openaiInputUsdPer1M": cfg.OpenAI.InputUSDPer1M, "openaiOutputUsdPer1M": cfg.OpenAI.OutputUSDPer1M, "seedanceUsdPerSecond": cfg.Seedance.USDPerSecond, "providerPricingConfigured": cfg.OpenAI.InputUSDPer1M > 0 || cfg.OpenAI.OutputUSDPer1M > 0 || cfg.Seedance.USDPerSecond > 0}
 	expires := time.Now().UTC().Add(30 * time.Minute)
 	encoded, _ := json.Marshal(assumptions)
 	var item CostEstimate
 	var raw []byte
-	err = s.pool.QueryRow(ctx, `INSERT INTO cost_estimates(client_id,workspace_id,campaign_id,operation,model,estimated_input_tokens,estimated_output_tokens,estimated_video_seconds,estimated_cost,assumptions,expires_at) VALUES($1,$2,$3,$4::generation_operation,$5,$6,$7,$8,$9,$10,$11) RETURNING id,campaign_id,operation::text,model,currency,estimated_input_tokens,estimated_output_tokens,estimated_video_seconds,estimated_cost::float8,assumptions,expires_at,created_at`, clientID, workspaceID, campaignID, operation, s.config.OpenAI.Model, inputTokens, outputTokens, videoSeconds, cost, encoded, expires).Scan(&item.ID, &item.CampaignID, &item.Operation, &item.Model, &item.Currency, &item.EstimatedInputTokens, &item.EstimatedOutputTokens, &item.EstimatedVideoSeconds, &item.EstimatedCost, &raw, &item.ExpiresAt, &item.CreatedAt)
+	err = s.pool.QueryRow(ctx, `INSERT INTO cost_estimates(client_id,workspace_id,campaign_id,operation,model,estimated_input_tokens,estimated_output_tokens,estimated_video_seconds,estimated_cost,assumptions,expires_at) VALUES($1,$2,$3,$4::generation_operation,$5,$6,$7,$8,$9,$10,$11) RETURNING id,campaign_id,operation::text,model,currency,estimated_input_tokens,estimated_output_tokens,estimated_video_seconds,estimated_cost::float8,assumptions,expires_at,created_at`, clientID, workspaceID, campaignID, operation, cfg.OpenAI.Model, inputTokens, outputTokens, videoSeconds, cost, encoded, expires).Scan(&item.ID, &item.CampaignID, &item.Operation, &item.Model, &item.Currency, &item.EstimatedInputTokens, &item.EstimatedOutputTokens, &item.EstimatedVideoSeconds, &item.EstimatedCost, &raw, &item.ExpiresAt, &item.CreatedAt)
 	if err != nil {
 		return CostEstimate{}, err
 	}
@@ -104,6 +129,10 @@ func (s *Service) Estimate(ctx context.Context, clientID, workspaceID, campaignI
 }
 
 func (s *Service) StartGeneration(ctx context.Context, clientID, workspaceID, campaignID, actorID uuid.UUID, operation, idempotencyKey string) (GenerationJob, error) {
+	cfg, configErr := s.effectiveConfig(ctx, clientID)
+	if configErr != nil {
+		return GenerationJob{}, configErr
+	}
 	operation = strings.ToUpper(strings.TrimSpace(operation))
 	if _, _, err := tokenEstimate(operation); err != nil || strings.TrimSpace(idempotencyKey) == "" || s.enqueuer == nil {
 		return GenerationJob{}, ErrInvalid
@@ -124,7 +153,7 @@ func (s *Service) StartGeneration(ctx context.Context, clientID, workspaceID, ca
 		WHERE c.id=$1 AND c.client_id=$2 AND c.workspace_id=$3`, campaignID, clientID, workspaceID).Scan(&campaignVersion, &conceptHash, &scriptHash, &characters); err != nil {
 		return GenerationJob{}, err
 	}
-	inputDigest := sha256.Sum256([]byte(fmt.Sprintf("%s:%d:%s:%s:%s:%s:%s:%s", campaignID, campaignVersion, operation, s.config.OpenAI.Model, studioai.PromptVersion, conceptHash, scriptHash, characters)))
+	inputDigest := sha256.Sum256([]byte(fmt.Sprintf("%s:%d:%s:%s:%s:%s:%s:%s", campaignID, campaignVersion, operation, cfg.OpenAI.Model, studioai.PromptVersion, conceptHash, scriptHash, characters)))
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return GenerationJob{}, err

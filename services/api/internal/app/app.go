@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"errors"
 	"log/slog"
 	"net/netip"
@@ -29,7 +28,6 @@ import (
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/internalusers"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/jobs"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/media"
-	metaprovider "github.com/internal/ai-product-marketing-studio/services/api/internal/meta"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/metaads"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/metaconnections"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/operations"
@@ -42,15 +40,21 @@ import (
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/security"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/products"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/producttruth"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/providerconfigs"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/publishing"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/rendering"
-	"github.com/internal/ai-product-marketing-studio/services/api/internal/storage"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/verticals"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/video"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/workspaces"
 )
 
 func New(cfg config.Config, logger *slog.Logger, pool *pgxpool.Pool) (*fiber.App, error) {
+	secretCipher, err := cryptox.New(cfg.EncryptionKey)
+	if err != nil {
+		return nil, err
+	}
+	providerConfigService := providerconfigs.NewService(pool, secretCipher)
+	providerConfigHandler := providerconfigs.NewHandler(providerConfigService)
 	authService, err := auth.NewService(pool, cfg.SessionSecret, cfg.SessionTTL)
 	if err != nil {
 		return nil, err
@@ -68,44 +72,15 @@ func New(cfg config.Config, logger *slog.Logger, pool *pgxpool.Pool) (*fiber.App
 	characterHandler := characters.NewHandler(characters.NewService(pool))
 	productHandler := products.NewHandler(products.NewService(pool, verticalRegistry))
 	truthHandler := producttruth.NewHandler(producttruth.NewService(pool))
-	var objectStore storage.ObjectStore
-	if cfg.R2.Validate() == nil {
-		objectStore, err = storage.NewS3Store(context.Background(), cfg.R2)
-		if err != nil {
-			return nil, err
-		}
-	}
 	jobEnqueuer, err := jobs.NewEnqueuer(pool)
 	if err != nil {
 		return nil, err
 	}
-	mediaHandler := media.NewHandler(media.NewService(pool, objectStore, jobEnqueuer))
-	planningHandler := planning.NewHandler(planning.NewService(pool, jobEnqueuer, cfg))
-	var videoProvider video.Provider
-	if cfg.DemoMode || cfg.Seedance.Validate() == nil {
-		videoProvider, err = video.NewProvider(cfg.DemoMode, cfg.Seedance)
-		if err != nil {
-			return nil, err
-		}
-	}
-	videoHandler := video.NewHandler(video.NewService(pool, jobEnqueuer, videoProvider, cfg))
+	mediaHandler := media.NewHandler(media.NewTenantService(pool, providerConfigService, jobEnqueuer))
+	planningHandler := planning.NewHandler(planning.NewTenantService(pool, jobEnqueuer, providerConfigService))
+	videoHandler := video.NewHandler(video.NewTenantService(pool, jobEnqueuer, providerConfigService, cfg))
 	renderHandler := rendering.NewHandler(rendering.NewService(pool, jobEnqueuer))
-	secretCipher, err := cryptox.New(cfg.EncryptionKey)
-	if err != nil {
-		return nil, err
-	}
-	var metaProvider metaprovider.Provider = metaprovider.NewUnavailableProvider()
-	if cfg.DemoMode || cfg.Meta.Validate() == nil {
-		metaProvider, err = metaprovider.NewProvider(cfg.DemoMode, cfg.Meta)
-		if err != nil {
-			return nil, err
-		}
-	}
-	metaAPIVersion := cfg.Meta.APIVersion
-	if cfg.DemoMode && metaAPIVersion == "" {
-		metaAPIVersion = "demo"
-	}
-	metaConnectionHandler := metaconnections.NewHandler(metaconnections.NewService(pool, secretCipher, metaProvider, metaAPIVersion), cfg.AppURL)
+	metaConnectionHandler := metaconnections.NewHandler(metaconnections.NewTenantService(pool, secretCipher, providerConfigService), cfg.AppURL)
 	publishingHandler := publishing.NewHandler(publishing.NewService(pool, jobEnqueuer))
 	metaAdsHandler := metaads.NewHandler(metaads.NewService(pool, jobEnqueuer))
 	operationsHandler := operations.NewHandler(pool, cfg)
@@ -148,6 +123,7 @@ func New(cfg config.Config, logger *slog.Logger, pool *pgxpool.Pool) (*fiber.App
 	protected := v1.Group("", auth.Authenticate(authService))
 	protected.Get("/auth/me", authHandler.Me)
 	protected.Use(auth.RequireCSRF(authService))
+	protected.Put("/auth/me", authHandler.UpdateMe)
 	protected.Post("/auth/logout", authHandler.Logout)
 	protected.Post("/auth/change-password", authHandler.ChangePassword)
 	protected.Get("/auth/sessions", authHandler.ListSessions)
@@ -181,6 +157,7 @@ func New(cfg config.Config, logger *slog.Logger, pool *pgxpool.Pool) (*fiber.App
 	protected.Post("/clients/:clientId/workspaces/:workspaceId/products/:productId/facts/:factId/approve", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleREVIEWER), truthHandler.ApproveFact)
 	protected.Get("/clients/:clientId/workspaces/:workspaceId/products/:productId/claims", truthHandler.ListClaims)
 	protected.Post("/clients/:clientId/workspaces/:workspaceId/products/:productId/claims", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleOPERATOR), truthHandler.CreateClaim)
+	protected.Put("/clients/:clientId/workspaces/:workspaceId/products/:productId/claims/:claimId", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleOPERATOR), truthHandler.UpdateClaim)
 	protected.Post("/clients/:clientId/workspaces/:workspaceId/products/:productId/claims/:claimId/approve", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleREVIEWER), truthHandler.ApproveClaim)
 	protected.Get("/clients/:clientId/workspaces/:workspaceId/media-assets", mediaHandler.List)
 	protected.Post("/clients/:clientId/workspaces/:workspaceId/media-uploads", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleOPERATOR), mediaHandler.StartUpload)
@@ -197,6 +174,7 @@ func New(cfg config.Config, logger *slog.Logger, pool *pgxpool.Pool) (*fiber.App
 	protected.Post("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId/duplicate", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleOPERATOR), campaignHandler.Duplicate)
 	protected.Get("/clients/:clientId/workspaces/:workspaceId/characters", characterHandler.List)
 	protected.Post("/clients/:clientId/workspaces/:workspaceId/characters", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleOPERATOR), characterHandler.Create)
+	protected.Put("/clients/:clientId/workspaces/:workspaceId/characters/:characterId", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleOPERATOR), characterHandler.Update)
 	protected.Get("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId/characters", characterHandler.GetSelection)
 	protected.Put("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId/characters", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleOPERATOR), characterHandler.Select)
 	protected.Get("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId/cost-estimate", planningHandler.Estimate)
@@ -237,11 +215,13 @@ func New(cfg config.Config, logger *slog.Logger, pool *pgxpool.Pool) (*fiber.App
 	protected.Delete("/clients/:clientId/workspaces/:workspaceId/meta/connection", auth.RequireRole(db.InternalUserRoleADMIN), metaConnectionHandler.Disconnect)
 	protected.Get("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId/social-posts", publishingHandler.List)
 	protected.Post("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId/social-posts", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleOPERATOR), publishingHandler.Create)
+	protected.Put("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId/social-posts/:postId", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleOPERATOR), publishingHandler.Update)
 	protected.Put("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId/social-posts/:postId/review", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleREVIEWER), publishingHandler.Review)
 	protected.Get("/clients/:clientId/workspaces/:workspaceId/meta-ad-guardrails", metaAdsHandler.GetGuardrails)
 	protected.Put("/clients/:clientId/workspaces/:workspaceId/meta-ad-guardrails", auth.RequireRole(db.InternalUserRoleADMIN), metaAdsHandler.SaveGuardrails)
 	protected.Get("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId/meta-ad-campaigns", metaAdsHandler.List)
 	protected.Post("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId/meta-ad-campaigns", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleOPERATOR), metaAdsHandler.Create)
+	protected.Put("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId/meta-ad-campaigns/:adCampaignId", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleOPERATOR), metaAdsHandler.Update)
 	protected.Put("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId/meta-ad-campaigns/:adCampaignId/review", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleREVIEWER), metaAdsHandler.ReviewCreate)
 	protected.Post("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId/meta-ad-campaigns/:adCampaignId/actions", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleOPERATOR), metaAdsHandler.RequestAction)
 	protected.Get("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId/meta-ad-campaigns/:adCampaignId/actions", metaAdsHandler.ListActions)
@@ -254,9 +234,12 @@ func New(cfg config.Config, logger *slog.Logger, pool *pgxpool.Pool) (*fiber.App
 	admins := protected.Group("", auth.RequireRole(db.InternalUserRoleADMIN))
 	admins.Get("/internal-users", userHandler.List)
 	admins.Post("/internal-users", userHandler.Create)
+	admins.Put("/internal-users/:userId", userHandler.Update)
 	admins.Post("/internal-users/:userId/reset-password", userHandler.ResetPassword)
 	admins.Patch("/internal-users/:userId/status", userHandler.SetStatus)
-	admins.Get("/operations/providers", operationsHandler.ProviderStatus)
+	admins.Get("/clients/:clientId/provider-configuration", providerConfigHandler.Get)
+	admins.Put("/clients/:clientId/provider-configuration/mode", providerConfigHandler.SaveMode)
+	admins.Put("/clients/:clientId/provider-configuration/:provider", providerConfigHandler.Save)
 	admins.Get("/operations/overview", operationsHandler.Overview)
 	admins.Post("/operations/jobs/:jobId/retry", operationsHandler.RetryJob)
 	admins.Post("/operations/jobs/:jobId/cancel", operationsHandler.CancelJob)

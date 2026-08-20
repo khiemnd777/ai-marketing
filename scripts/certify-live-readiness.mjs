@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const requiredProviders = ["openai", "seedance", "r2", "meta", "renderer"];
+const requiredProviders = ["OPENAI", "SEEDANCE", "R2", "META", "RENDERER"];
 const timeoutMs = Number.parseInt(process.env.STUDIO_CERT_TIMEOUT_MS ?? "10000", 10);
 
 function required(name) {
@@ -50,6 +50,10 @@ const rendererValue = process.env.STUDIO_CERT_RENDERER_URL?.trim();
 const renderer = rendererValue ? target("STUDIO_CERT_RENDERER_URL") : null;
 const email = required("STUDIO_CERT_ADMIN_EMAIL");
 const password = required("STUDIO_CERT_ADMIN_PASSWORD");
+const clientId = required("STUDIO_CERT_CLIENT_ID");
+if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientId)) {
+  throw new Error("STUDIO_CERT_CLIENT_ID must be a UUID");
+}
 
 let cookie = "";
 let csrfToken = "";
@@ -74,16 +78,23 @@ try {
   if (!cookie || !csrfToken) throw new Error("Admin login did not return a complete session");
   if (login.body?.role !== "ADMIN" || login.body?.requiresPasswordChange) throw new Error("Certification account must be an active Admin without a forced password change");
 
-  const status = await json(new URL("/v1/operations/providers", api), {
+  const status = await json(new URL(`/v1/clients/${clientId}/provider-configuration`, api), {
     headers: { accept: "application/json", cookie },
   }, "Provider readiness");
-  if (status.body?.demoMode !== false) throw new Error("Live certification requires DEMO_MODE=false");
-  const providers = new Map((status.body?.providers ?? []).map((provider) => [provider.name, provider]));
+  if (status.body?.clientId !== clientId) throw new Error("Provider readiness returned a different client scope");
+  if (status.body?.demoMode !== false) throw new Error("Live certification requires this client provider profile to be in LIVE mode");
+  const providers = new Map((status.body?.providers ?? []).map((provider) => [provider.provider, provider]));
   const missing = requiredProviders.filter((name) => providers.get(name)?.configured !== true);
   if (missing.length) throw new Error(`Providers not configured: ${missing.join(", ")}`);
-  const insecureProviders = ["openai", "seedance", "r2", "meta"].filter((name) => {
-    try { return new URL(providers.get(name)?.baseUrl).protocol !== "https:"; } catch { return true; }
-  });
+  const endpointByProvider = new Map([
+    ["OPENAI", providers.get("OPENAI")?.settings?.baseUrl],
+    ["SEEDANCE", providers.get("SEEDANCE")?.settings?.baseUrl],
+    ["R2", providers.get("R2")?.settings?.endpoint],
+    ["META", providers.get("META")?.settings?.graphBaseUrl],
+  ]);
+  const insecureProviders = [...endpointByProvider].filter(([, endpoint]) => {
+    try { return new URL(endpoint).protocol !== "https:"; } catch { return true; }
+  }).map(([name]) => name);
   if (insecureProviders.length) throw new Error(`Provider endpoints must use HTTPS: ${insecureProviders.join(", ")}`);
 
   process.stdout.write(`${JSON.stringify({
@@ -92,6 +103,7 @@ try {
     api: api.host,
     web: web.host,
     renderer: renderer?.host ?? "verified-by-api-configuration",
+    clientId,
     providers: requiredProviders,
     timestamp: new Date().toISOString(),
   })}\n`);

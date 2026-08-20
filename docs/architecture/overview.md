@@ -40,4 +40,4 @@ Approvals bind entity type, entity ID, version, hash, approver, timestamp, and n
 
 ## Demo and production providers
 
-Demo mode selects deterministic adapters that persist the same normalized request, output, usage, and job records as real providers. It never reports a live provider success. Production adapters validate configuration lazily so installation, tests, and builds need no live credentials.
+Each client owns a PostgreSQL-backed provider profile containing its demo/live mode and OpenAI, Seedance, R2, Meta, and renderer settings. Demo mode selects deterministic adapters that persist the same normalized request, output, usage, and job records as real providers. It never reports a live provider success. Runtime adapters resolve configuration by `client_id` and validate it lazily so installation, tests, and builds need no live credentials.

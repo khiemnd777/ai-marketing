@@ -8,9 +8,9 @@ import type { components } from "@studio/api-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Download, Film, FolderOpen, ImageIcon, ListFilter, Music2, Pencil, Search, Trash2, X } from "lucide-react";
 import Image from "next/image";
-import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePermissions } from "@/components/auth-context";
+import { useStudioScope } from "@/components/studio-scope";
 import { Badge, Button, Card, Field, PageHeader, SkeletonRows, StatePanel, inputClass, textareaClass } from "@/components/ui";
 import { api } from "@/lib/api";
 import { apiError, newIdempotencyKey } from "@/lib/problem";
@@ -34,9 +34,7 @@ export default function MediaPage() {
 }
 
 function MediaContent() {
-  const params = useSearchParams();
-  const clientId = params.get("clientId") ?? "";
-  const workspaceId = params.get("workspaceId") ?? "";
+  const { clientId, workspaceId } = useStudioScope();
   const scope = useMemo(() => ({ clientId, workspaceId }), [clientId, workspaceId]);
   const { canOperate, canReview } = usePermissions();
   const qc = useQueryClient();

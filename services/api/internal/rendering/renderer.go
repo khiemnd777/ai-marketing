@@ -123,6 +123,25 @@ func NewRendererClient(cfg config.RendererConfig) (*RendererClient, error) {
 }
 
 func (c *RendererClient) Render(ctx context.Context, raw []byte) (RendererResult, error) {
+	return c.render(ctx, raw)
+}
+
+func (c *RendererClient) RenderWithStorage(ctx context.Context, manifest []byte, storageConfig config.R2Config) (RendererResult, error) {
+	if err := storageConfig.Validate(); err != nil {
+		return RendererResult{}, err
+	}
+	var document json.RawMessage
+	if err := json.Unmarshal(manifest, &document); err != nil {
+		return RendererResult{}, err
+	}
+	raw, err := json.Marshal(map[string]any{"manifest": document, "storage": map[string]string{"endpoint": storageConfig.Endpoint, "accessKeyId": storageConfig.AccessKeyID, "secretAccessKey": storageConfig.SecretAccessKey, "bucket": storageConfig.Bucket}})
+	if err != nil {
+		return RendererResult{}, err
+	}
+	return c.render(ctx, raw)
+}
+
+func (c *RendererClient) render(ctx context.Context, raw []byte) (RendererResult, error) {
 	ctx, span := otel.Tracer("studio-worker/renderer").Start(ctx, "renderer.render", trace.WithSpanKind(trace.SpanKindClient), trace.WithAttributes(attribute.String("server.address", c.baseURL)))
 	defer span.End()
 	mac := hmac.New(sha256.New, []byte(c.secret))

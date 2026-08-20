@@ -86,6 +86,8 @@ CREATE TYPE "public"."usage_outcome" AS ENUM ('SUCCESS', 'FAILURE');
 CREATE TYPE "public"."recommendation_status" AS ENUM ('DRAFT', 'APPROVED', 'REJECTED', 'APPLIED', 'DISMISSED');
 -- Create enum type "notification_severity"
 CREATE TYPE "public"."notification_severity" AS ENUM ('INFO', 'WARNING', 'CRITICAL');
+-- Create enum type "provider_kind"
+CREATE TYPE "public"."provider_kind" AS ENUM ('OPENAI', 'SEEDANCE', 'R2', 'META', 'RENDERER');
 -- Create "ad_campaign_metrics_daily" table
 CREATE TABLE "public"."ad_campaign_metrics_daily" (
   "ad_campaign_id" uuid NOT NULL,
@@ -619,6 +621,18 @@ CREATE TABLE "public"."characters" (
 );
 -- Create index "characters_scope_status_idx" to table: "characters"
 CREATE INDEX "characters_scope_status_idx" ON "public"."characters" ("client_id", "workspace_id", "status", "name");
+-- Create "client_provider_profiles" table
+CREATE TABLE "public"."client_provider_profiles" (
+  "client_id" uuid NOT NULL,
+  "demo_mode" boolean NOT NULL DEFAULT true,
+  "version" bigint NOT NULL DEFAULT 1,
+  "created_by" uuid NOT NULL,
+  "updated_by" uuid NOT NULL,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY ("client_id"),
+  CONSTRAINT "client_provider_profiles_version_check" CHECK (version > 0)
+);
 -- Create "clients" table
 CREATE TABLE "public"."clients" (
   "id" uuid NOT NULL DEFAULT uuidv7(),
@@ -1274,6 +1288,30 @@ CREATE TABLE "public"."products" (
 );
 -- Create index "products_scope_status_idx" to table: "products"
 CREATE INDEX "products_scope_status_idx" ON "public"."products" ("client_id", "workspace_id", "status", "name");
+-- Create "provider_configurations" table
+CREATE TABLE "public"."provider_configurations" (
+  "id" uuid NOT NULL DEFAULT uuidv7(),
+  "client_id" uuid NOT NULL,
+  "provider" "public"."provider_kind" NOT NULL,
+  "enabled" boolean NOT NULL DEFAULT true,
+  "safe_config" jsonb NOT NULL DEFAULT '{}',
+  "secret_ciphertext" bytea NOT NULL,
+  "secret_nonce" bytea NOT NULL,
+  "configured_secret_fields" text[] NOT NULL DEFAULT '{}',
+  "version" bigint NOT NULL DEFAULT 1,
+  "created_by" uuid NOT NULL,
+  "updated_by" uuid NOT NULL,
+  "created_at" timestamptz NOT NULL DEFAULT now(),
+  "updated_at" timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY ("id"),
+  CONSTRAINT "provider_configurations_client_id_provider_key" UNIQUE ("client_id", "provider"),
+  CONSTRAINT "provider_configurations_id_client_id_key" UNIQUE ("id", "client_id"),
+  CONSTRAINT "provider_configurations_safe_config_check" CHECK (jsonb_typeof(safe_config) = 'object'::text),
+  CONSTRAINT "provider_configurations_secret_fields" CHECK ((configured_secret_fields <@ ARRAY['apiKey'::text, 'webhookSecret'::text, 'accessKeyId'::text, 'secretAccessKey'::text, 'appSecret'::text])),
+  CONSTRAINT "provider_configurations_version_check" CHECK (version > 0)
+);
+-- Create index "provider_configurations_client_idx" to table: "provider_configurations"
+CREATE INDEX "provider_configurations_client_idx" ON "public"."provider_configurations" ("client_id", "provider");
 -- Create "provider_outputs" table
 CREATE TABLE "public"."provider_outputs" (
   "id" uuid NOT NULL DEFAULT uuidv7(),
@@ -2054,6 +2092,8 @@ ALTER TABLE "public"."character_assets" ADD CONSTRAINT "character_assets_charact
 ALTER TABLE "public"."character_consents" ADD CONSTRAINT "character_consents_artifact_asset_id_fkey" FOREIGN KEY ("artifact_asset_id") REFERENCES "public"."media_assets" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION, ADD CONSTRAINT "character_consents_character_id_fkey" FOREIGN KEY ("character_id") REFERENCES "public"."characters" ("id") ON UPDATE NO ACTION ON DELETE CASCADE, ADD CONSTRAINT "character_consents_recorded_by_fkey" FOREIGN KEY ("recorded_by") REFERENCES "public"."internal_users" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION;
 -- Modify "characters" table
 ALTER TABLE "public"."characters" ADD CONSTRAINT "characters_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "public"."internal_users" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION, ADD CONSTRAINT "characters_preview_asset_id_fkey" FOREIGN KEY ("preview_asset_id") REFERENCES "public"."media_assets" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION, ADD CONSTRAINT "characters_updated_by_fkey" FOREIGN KEY ("updated_by") REFERENCES "public"."internal_users" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION, ADD CONSTRAINT "characters_workspace_id_client_id_fkey" FOREIGN KEY ("workspace_id", "client_id") REFERENCES "public"."workspaces" ("id", "client_id") ON UPDATE NO ACTION ON DELETE NO ACTION;
+-- Modify "client_provider_profiles" table
+ALTER TABLE "public"."client_provider_profiles" ADD CONSTRAINT "client_provider_profiles_client_id_fkey" FOREIGN KEY ("client_id") REFERENCES "public"."clients" ("id") ON UPDATE NO ACTION ON DELETE CASCADE, ADD CONSTRAINT "client_provider_profiles_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "public"."internal_users" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION, ADD CONSTRAINT "client_provider_profiles_updated_by_fkey" FOREIGN KEY ("updated_by") REFERENCES "public"."internal_users" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION;
 -- Modify "clients" table
 ALTER TABLE "public"."clients" ADD CONSTRAINT "clients_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "public"."internal_users" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION, ADD CONSTRAINT "clients_updated_by_fkey" FOREIGN KEY ("updated_by") REFERENCES "public"."internal_users" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION;
 -- Modify "cost_estimates" table
@@ -2106,6 +2146,8 @@ ALTER TABLE "public"."product_versions" ADD CONSTRAINT "product_versions_created
 ALTER TABLE "public"."product_vertical_data" ADD CONSTRAINT "product_vertical_data_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "public"."internal_users" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION, ADD CONSTRAINT "product_vertical_data_product_id_client_id_workspace_id_fkey" FOREIGN KEY ("product_id", "client_id", "workspace_id") REFERENCES "public"."products" ("id", "client_id", "workspace_id") ON UPDATE NO ACTION ON DELETE NO ACTION;
 -- Modify "products" table
 ALTER TABLE "public"."products" ADD CONSTRAINT "products_brand_id_fkey" FOREIGN KEY ("brand_id") REFERENCES "public"."brands" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION, ADD CONSTRAINT "products_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "public"."internal_users" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION, ADD CONSTRAINT "products_updated_by_fkey" FOREIGN KEY ("updated_by") REFERENCES "public"."internal_users" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION, ADD CONSTRAINT "products_workspace_id_client_id_fkey" FOREIGN KEY ("workspace_id", "client_id") REFERENCES "public"."workspaces" ("id", "client_id") ON UPDATE NO ACTION ON DELETE NO ACTION;
+-- Modify "provider_configurations" table
+ALTER TABLE "public"."provider_configurations" ADD CONSTRAINT "provider_configurations_client_id_fkey" FOREIGN KEY ("client_id") REFERENCES "public"."clients" ("id") ON UPDATE NO ACTION ON DELETE CASCADE, ADD CONSTRAINT "provider_configurations_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "public"."internal_users" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION, ADD CONSTRAINT "provider_configurations_updated_by_fkey" FOREIGN KEY ("updated_by") REFERENCES "public"."internal_users" ("id") ON UPDATE NO ACTION ON DELETE NO ACTION;
 -- Modify "provider_outputs" table
 ALTER TABLE "public"."provider_outputs" ADD CONSTRAINT "provider_outputs_provider_request_id_fkey" FOREIGN KEY ("provider_request_id") REFERENCES "public"."provider_requests" ("id") ON UPDATE NO ACTION ON DELETE CASCADE;
 -- Modify "provider_requests" table

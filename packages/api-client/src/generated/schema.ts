@@ -108,7 +108,7 @@ export interface paths {
             cookie?: never;
         };
         get: operations["getCurrentUser"];
-        put?: never;
+        put: operations["updateCurrentUser"];
         post?: never;
         delete?: never;
         options?: never;
@@ -200,6 +200,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal-users/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateInternalUser"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/internal-users/{userId}/status": {
         parameters: {
             query?: never;
@@ -268,6 +286,61 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["setClientStatus"];
+        trace?: never;
+    };
+    "/clients/{clientId}/provider-configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+            };
+            cookie?: never;
+        };
+        get: operations["getClientProviderConfiguration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{clientId}/provider-configuration/mode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateClientProviderMode"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{clientId}/provider-configuration/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                provider: components["schemas"]["ProviderKind"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateClientProviderConfiguration"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/clients/{clientId}/workspaces": {
@@ -526,6 +599,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/clients/{clientId}/workspaces/{workspaceId}/products/{productId}/claims/{claimId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                productId: components["parameters"]["ProductId"];
+                claimId: components["parameters"]["ClaimId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateProductClaim"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/clients/{clientId}/workspaces/{workspaceId}/products/{productId}/claims/{claimId}/approve": {
         parameters: {
             query?: never;
@@ -758,6 +852,26 @@ export interface paths {
         get: operations["listCharacters"];
         put?: never;
         post: operations["createCharacter"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{clientId}/workspaces/{workspaceId}/characters/{characterId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                characterId: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateCharacter"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1418,6 +1532,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/social-posts/{postId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                campaignId: components["parameters"]["CampaignId"];
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateSocialPost"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/social-posts/{postId}/review": {
         parameters: {
             query?: never;
@@ -1472,6 +1607,27 @@ export interface paths {
         get: operations["listMetaAdCampaigns"];
         put?: never;
         post: operations["createMetaAdCampaign"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/meta-ad-campaigns/{adCampaignId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                campaignId: components["parameters"]["CampaignId"];
+                adCampaignId: components["parameters"]["AdCampaignId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateMetaAdCampaign"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1600,22 +1756,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/operations/providers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["getProviderStatus"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/operations/overview": {
         parameters: {
             query?: never;
@@ -1734,10 +1874,14 @@ export interface components {
             internalNotes: string;
             version?: number;
         };
+        ClientUpdateInput: components["schemas"]["ClientInput"] & {
+            version: number;
+        };
         Client: components["schemas"]["ClientInput"] & {
             /** Format: uuid */
             id: string;
             status: components["schemas"]["LifecycleStatus"];
+            version: number;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -1754,12 +1898,16 @@ export interface components {
             timezone: string;
             version?: number;
         };
+        WorkspaceUpdateInput: components["schemas"]["WorkspaceInput"] & {
+            version: number;
+        };
         Workspace: components["schemas"]["WorkspaceInput"] & {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
             clientId: string;
             status: components["schemas"]["LifecycleStatus"];
+            version: number;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -1856,6 +2004,9 @@ export interface components {
             changeSummary: string;
             version?: number;
         };
+        ProductUpdateInput: components["schemas"]["ProductInput"] & {
+            version: number;
+        };
         Product: components["schemas"]["ProductInput"] & {
             /** Format: uuid */
             id: string;
@@ -1866,6 +2017,7 @@ export interface components {
             /** @enum {string} */
             status: "DRAFT" | "APPROVED" | "ARCHIVED";
             currentVersion: number;
+            version: number;
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
@@ -1890,6 +2042,9 @@ export interface components {
             changeSummary: string;
             version?: number;
         };
+        ProductFactUpdateInput: components["schemas"]["ProductFactInput"] & {
+            version: number;
+        };
         ProductFact: components["schemas"]["ProductFactInput"] & {
             /** Format: uuid */
             id: string;
@@ -1901,6 +2056,7 @@ export interface components {
             workspaceId: string;
             status: components["schemas"]["FactStatus"];
             lockedValue: boolean;
+            version: number;
             /** Format: uuid */
             approvedBy?: string | null;
             /** Format: date-time */
@@ -1924,12 +2080,16 @@ export interface components {
             changeSummary: string;
             version?: number;
         };
+        ProductClaimUpdateInput: components["schemas"]["ProductClaimInput"] & {
+            version: number;
+        };
         ProductClaim: components["schemas"]["ProductClaimInput"] & {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
             productId: string;
             status: components["schemas"]["FactStatus"];
+            version: number;
             /** Format: date-time */
             approvedAt?: string | null;
             /** Format: date-time */
@@ -2006,6 +2166,10 @@ export interface components {
             consentStatus: "NOT_REQUIRED" | "PENDING" | "APPROVED" | "REVOKED" | "EXPIRED";
             /** Format: uuid */
             previewAssetId?: string | null;
+            version?: number;
+        };
+        CharacterUpdateInput: components["schemas"]["CharacterInput"] & {
+            version: number;
         };
         Character: components["schemas"]["CharacterInput"] & {
             /** Format: uuid */
@@ -2494,6 +2658,10 @@ export interface components {
             caption: string;
             /** Format: date-time */
             scheduledAt?: string | null;
+            version?: number;
+        };
+        SocialPostUpdateInput: components["schemas"]["SocialPostInput"] & {
+            version: number;
         };
         SocialPost: components["schemas"]["SocialPostInput"] & {
             /** Format: uuid */
@@ -2576,6 +2744,10 @@ export interface components {
             };
             conversionEvent?: string | null;
             creative: components["schemas"]["MetaAdCreativeInput"];
+            version?: number;
+        };
+        MetaAdCampaignUpdateInput: components["schemas"]["MetaAdCampaignInput"] & {
+            version: number;
         };
         MetaAdCampaign: components["schemas"]["MetaAdCampaignInput"] & {
             /** Format: uuid */
@@ -2747,17 +2919,44 @@ export interface components {
             version: number;
             notes: string;
         };
-        ProviderHealth: {
-            name: string;
+        /** @enum {string} */
+        ProviderKind: "OPENAI" | "SEEDANCE" | "R2" | "META" | "RENDERER";
+        ProviderSettingValue: string | number | boolean;
+        ProviderConfiguration: {
+            provider: components["schemas"]["ProviderKind"];
+            enabled: boolean;
             configured: boolean;
-            model?: string;
-            apiVersion?: string;
-            bucket?: string;
-            baseUrl?: string;
+            settings: {
+                [key: string]: components["schemas"]["ProviderSettingValue"];
+            };
+            configuredSecretFields: ("apiKey" | "webhookSecret" | "accessKeyId" | "secretAccessKey" | "appSecret")[];
+            /** Format: int64 */
+            version: number;
         };
-        ProviderStatus: {
+        ClientProviderConfiguration: {
+            /** Format: uuid */
+            clientId: string;
             demoMode: boolean;
-            providers: components["schemas"]["ProviderHealth"][];
+            /** Format: int64 */
+            version: number;
+            providers: components["schemas"]["ProviderConfiguration"][];
+        };
+        ProviderModeInput: {
+            demoMode: boolean;
+            /** Format: int64 */
+            version: number;
+        };
+        ProviderConfigurationInput: {
+            enabled: boolean;
+            settings: {
+                [key: string]: components["schemas"]["ProviderSettingValue"];
+            };
+            secrets: {
+                [key: string]: string;
+            };
+            clearSecrets: ("apiKey" | "webhookSecret" | "accessKeyId" | "secretAccessKey" | "appSecret")[];
+            /** Format: int64 */
+            version: number;
         };
         OperationsQueueMetric: {
             queue: string;
@@ -3039,6 +3238,20 @@ export interface components {
             role: "ADMIN" | "OPERATOR" | "REVIEWER";
             temporaryPassword: string;
         };
+        UpdateCurrentUserRequest: {
+            /** Format: email */
+            email: string;
+            displayName: string;
+            version: number;
+        };
+        UpdateInternalUserRequest: {
+            /** Format: email */
+            email: string;
+            displayName: string;
+            /** @enum {string} */
+            role: "ADMIN" | "OPERATOR" | "REVIEWER";
+            version: number;
+        };
         ChangePasswordRequest: {
             currentPassword: string;
             newPassword: string;
@@ -3298,6 +3511,33 @@ export interface operations {
             401: components["responses"]["Problem"];
         };
     };
+    updateCurrentUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateCurrentUserRequest"];
+            };
+        };
+        responses: {
+            /** @description Current user profile updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InternalUser"];
+                };
+            };
+            401: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
     changeCurrentUserPassword: {
         parameters: {
             query?: never;
@@ -3450,6 +3690,36 @@ export interface operations {
             422: components["responses"]["Problem"];
         };
     };
+    updateInternalUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateInternalUserRequest"];
+            };
+        };
+        responses: {
+            /** @description Internal user profile and role updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InternalUser"];
+                };
+            };
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
     setInternalUserStatus: {
         parameters: {
             query?: never;
@@ -3566,7 +3836,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ClientInput"];
+                "application/json": components["schemas"]["ClientUpdateInput"];
             };
         };
         responses: {
@@ -3606,6 +3876,88 @@ export interface operations {
                     "application/json": components["schemas"]["Client"];
                 };
             };
+        };
+    };
+    getClientProviderConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Client-scoped provider configuration with secret presence only. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientProviderConfiguration"];
+                };
+            };
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+        };
+    };
+    updateClientProviderMode: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderModeInput"];
+            };
+        };
+        responses: {
+            /** @description Client-scoped demo/live mode updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientProviderConfiguration"];
+                };
+            };
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+        };
+    };
+    updateClientProviderConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                provider: components["schemas"]["ProviderKind"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProviderConfigurationInput"];
+            };
+        };
+        responses: {
+            /** @description Provider configuration encrypted and updated for this client. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClientProviderConfiguration"];
+                };
+            };
+            403: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
         };
     };
     listWorkspaces: {
@@ -3695,7 +4047,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["WorkspaceInput"];
+                "application/json": components["schemas"]["WorkspaceUpdateInput"];
             };
         };
         responses: {
@@ -3965,7 +4317,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ProductInput"];
+                "application/json": components["schemas"]["ProductUpdateInput"];
             };
         };
         responses: {
@@ -4076,7 +4428,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ProductFactInput"];
+                "application/json": components["schemas"]["ProductFactUpdateInput"];
             };
         };
         responses: {
@@ -4176,6 +4528,38 @@ export interface operations {
                     "application/json": components["schemas"]["ProductClaim"];
                 };
             };
+        };
+    };
+    updateProductClaim: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                productId: components["parameters"]["ProductId"];
+                claimId: components["parameters"]["ClaimId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductClaimUpdateInput"];
+            };
+        };
+        responses: {
+            /** @description Product claim updated and returned to draft review. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductClaim"];
+                };
+            };
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
         };
     };
     approveProductClaim: {
@@ -4628,6 +5012,37 @@ export interface operations {
                     "application/json": components["schemas"]["Character"];
                 };
             };
+        };
+    };
+    updateCharacter: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                characterId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CharacterUpdateInput"];
+            };
+        };
+        responses: {
+            /** @description Workspace character updated; dependent script and scene approvals are invalidated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Character"];
+                };
+            };
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
         };
     };
     getCampaignCharacters: {
@@ -5763,6 +6178,38 @@ export interface operations {
             409: components["responses"]["Problem"];
         };
     };
+    updateSocialPost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                campaignId: components["parameters"]["CampaignId"];
+                postId: components["parameters"]["PostId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SocialPostUpdateInput"];
+            };
+        };
+        responses: {
+            /** @description Unpublished social post updated and returned to approval required. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SocialPost"];
+                };
+            };
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
     reviewSocialPost: {
         parameters: {
             query?: never;
@@ -5900,6 +6347,38 @@ export interface operations {
                 };
             };
             409: components["responses"]["Problem"];
+        };
+    };
+    updateMetaAdCampaign: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                campaignId: components["parameters"]["CampaignId"];
+                adCampaignId: components["parameters"]["AdCampaignId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MetaAdCampaignUpdateInput"];
+            };
+        };
+        responses: {
+            /** @description Pre-provider Meta Ads draft updated and returned to approval required. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetaAdCampaign"];
+                };
+            };
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
         };
     };
     reviewMetaAdCampaign: {
@@ -6133,27 +6612,6 @@ export interface operations {
             409: components["responses"]["Problem"];
         };
     };
-    getProviderStatus: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Safe provider configuration status without credentials. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProviderStatus"];
-                };
-            };
-            403: components["responses"]["Problem"];
-        };
-    };
     getOperationsOverview: {
         parameters: {
             query?: never;
@@ -6250,6 +6708,7 @@ export interface operations {
         parameters: {
             query: {
                 token: string;
+                clientId: string;
             };
             header?: never;
             path?: never;

@@ -37,7 +37,7 @@ test("auth gate, forced password change, admin reset/status, session revocation,
 
   await page.goto("/clients");
   await expect(page).toHaveURL(/\/login\?returnUrl=%2Fclients/);
-  await expect(page.getByRole("navigation", { name: "Điều hướng chính" })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Danh mục" })).toHaveCount(0);
 
   await login(page, adminEmail!, adminPassword!);
   await expect(page).toHaveURL(/\/clients(?:\?|$)/);
@@ -47,7 +47,7 @@ test("auth gate, forced password change, admin reset/status, session revocation,
   await page.getByLabel("Email", { exact: true }).fill(`auth-${suffix}@example.com`);
   await page.getByLabel("Ngành").fill("Software");
   await page.getByRole("button", { name: "Tạo khách hàng" }).click();
-  await page.getByRole("link", { name: clientName }).click();
+  await expect(page.getByRole("heading", { name: clientName })).toBeVisible();
   await page.getByRole("button", { name: "Thêm workspace" }).click();
   await page.getByLabel("Tên workspace").fill(workspaceName);
   await page.getByLabel("Slug").fill(`auth-${suffix}`.toLowerCase());
@@ -88,10 +88,10 @@ test("auth gate, forced password change, admin reset/status, session revocation,
   await expect(workspaceSelect).toBeEnabled();
   await expect.poll(async () => workspaceSelect.locator("option").count()).toBeGreaterThan(1);
   await workspaceSelect.selectOption({ index: 1 });
-  const productLink = operatorPage.getByRole("link", { name: "Sản phẩm" });
-  await expect(productLink).toHaveAttribute("href", /clientId=.+workspaceId=.+/);
+  const productLink = operatorPage.getByRole("link", { name: "Sản phẩm & Product Truth" });
+  await expect(productLink).toHaveAttribute("href", /\/clients\/.+\/workspaces\/.+\/products/);
   await productLink.click();
-  await expect(operatorPage).toHaveURL(/\/products\?clientId=.+&workspaceId=.+/);
+  await expect(operatorPage).toHaveURL(/\/clients\/.+\/workspaces\/.+\/products/);
   await expect(operatorPage.getByText("Chưa chọn workspace")).toHaveCount(0);
 
   await page.reload();

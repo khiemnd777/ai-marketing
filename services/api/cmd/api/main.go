@@ -66,7 +66,7 @@ func run() error {
 	}
 	serverError := make(chan error, 1)
 	go func() { serverError <- application.Listen(cfg.HTTPAddress) }()
-	logger.Info("API listening", "address", cfg.HTTPAddress, "environment", cfg.Environment, "demo_mode", cfg.DemoMode)
+	logger.Info("API listening", "address", cfg.HTTPAddress, "environment", cfg.Environment)
 
 	select {
 	case <-ctx.Done():

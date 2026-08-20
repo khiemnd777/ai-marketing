@@ -591,3 +591,47 @@ func (q *Queries) UpdateInternalUserPasswordVersioned(ctx context.Context, arg U
 	)
 	return i, err
 }
+
+const updateInternalUserProfileVersioned = `-- name: UpdateInternalUserProfileVersioned :one
+UPDATE internal_users
+SET email = lower($1), display_name = $2, role = $3,
+    version = version + 1, updated_at = now()
+WHERE id = $4 AND version = $5
+RETURNING id, email, display_name, password_hash, role, status, requires_password_change, failed_login_attempts, locked_until, last_login_at, password_changed_at, version, created_at, updated_at
+`
+
+type UpdateInternalUserProfileVersionedParams struct {
+	Email       string           `json:"email"`
+	DisplayName string           `json:"display_name"`
+	Role        InternalUserRole `json:"role"`
+	ID          uuid.UUID        `json:"id"`
+	Version     int64            `json:"version"`
+}
+
+func (q *Queries) UpdateInternalUserProfileVersioned(ctx context.Context, arg UpdateInternalUserProfileVersionedParams) (InternalUser, error) {
+	row := q.db.QueryRow(ctx, updateInternalUserProfileVersioned,
+		arg.Email,
+		arg.DisplayName,
+		arg.Role,
+		arg.ID,
+		arg.Version,
+	)
+	var i InternalUser
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.Role,
+		&i.Status,
+		&i.RequiresPasswordChange,
+		&i.FailedLoginAttempts,
+		&i.LockedUntil,
+		&i.LastLoginAt,
+		&i.PasswordChangedAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}

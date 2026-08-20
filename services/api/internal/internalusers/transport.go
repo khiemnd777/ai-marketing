@@ -23,6 +23,13 @@ type createRequest struct {
 	TemporaryPassword string              `json:"temporaryPassword"`
 }
 
+type updateRequest struct {
+	Email       string              `json:"email"`
+	DisplayName string              `json:"displayName"`
+	Role        db.InternalUserRole `json:"role"`
+	Version     int64               `json:"version"`
+}
+
 type userResponse struct {
 	ID                     string     `json:"id"`
 	Email                  string     `json:"email"`
@@ -88,6 +95,26 @@ func (h *Handler) List(c fiber.Ctx) error {
 	return c.JSON(fiber.Map{"items": items, "page": fiber.Map{"number": result.Number, "size": result.Size, "totalItems": result.TotalItems, "totalPages": result.TotalPages}})
 }
 
+func (h *Handler) Update(c fiber.Ctx) error {
+	userID, err := uuid.Parse(c.Params("userId"))
+	if err != nil {
+		return problem.Write(c, fiber.StatusBadRequest, "invalid-id", "ID tài khoản không hợp lệ", "User ID phải là UUID hợp lệ.")
+	}
+	var input updateRequest
+	if err = c.Bind().Body(&input); err != nil {
+		return problem.Write(c, fiber.StatusBadRequest, "invalid-request", "Yêu cầu không hợp lệ", "Nội dung cập nhật tài khoản phải là JSON hợp lệ.")
+	}
+	principal, ok := auth.PrincipalFrom(c)
+	if !ok {
+		return problem.Write(c, fiber.StatusUnauthorized, "unauthenticated", "Cần đăng nhập", "Phiên đăng nhập không hợp lệ.")
+	}
+	updated, err := h.service.Update(c.Context(), userID, UpdateInput{Email: input.Email, DisplayName: input.DisplayName, Role: input.Role, Version: input.Version}, principal, auth.MetadataFrom(c))
+	if err != nil {
+		return writeLifecycleError(c, err, "Không thể cập nhật tài khoản")
+	}
+	return c.JSON(mapResponse(updated))
+}
+
 func (h *Handler) ResetPassword(c fiber.Ctx) error {
 	userID, err := uuid.Parse(c.Params("userId"))
 	if err != nil {
@@ -136,6 +163,8 @@ func writeLifecycleError(c fiber.Ctx, err error, fallback string) error {
 		return problem.Write(c, fiber.StatusNotFound, "user-not-found", "Không tìm thấy tài khoản", "Tài khoản không tồn tại.")
 	case errors.Is(err, ErrConflict):
 		return problem.Write(c, fiber.StatusConflict, "stale-user", "Tài khoản đã thay đổi", "Tải lại danh sách và thử lại.")
+	case errors.Is(err, ErrEmailExists):
+		return problem.Write(c, fiber.StatusConflict, "email-exists", "Email đã tồn tại", "Một tài khoản nội bộ đang sử dụng email này.")
 	case errors.Is(err, ErrSelfDisable):
 		return problem.Write(c, fiber.StatusConflict, "self-disable", "Không thể vô hiệu hóa chính mình", "Nhờ một quản trị viên khác thực hiện thao tác này.")
 	case errors.Is(err, ErrLastAdmin):

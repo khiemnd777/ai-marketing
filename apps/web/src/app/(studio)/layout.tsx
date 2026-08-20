@@ -29,5 +29,5 @@ export default async function StudioLayout({ children }: { children: ReactNode }
   const user = await loadCurrentUser();
   if (!user) redirect(`/login?returnUrl=${encodeURIComponent(returnUrl)}`);
   if (user.requiresPasswordChange) redirect(`/account/password?returnUrl=${encodeURIComponent(returnUrl)}`);
-  return <AppShell user={user} demoMode={process.env.DEMO_MODE === "true"}>{children}</AppShell>;
+  return <AppShell user={user}>{children}</AppShell>;
 }

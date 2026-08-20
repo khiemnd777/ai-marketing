@@ -4,18 +4,20 @@ import type { components } from "@studio/api-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
-  Boxes,
+  BarChart3,
   BriefcaseBusiness,
-  ChartNoAxesCombined,
   ChevronRight,
   Clapperboard,
   DatabaseZap,
   FolderKanban,
+  LayoutDashboard,
   LibraryBig,
   LogOut,
   Menu,
   Megaphone,
   PackageSearch,
+  Palette,
+  PanelsTopLeft,
   ShieldCheck,
   UserCog,
   UsersRound,
@@ -25,9 +27,11 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { CurrentUserProvider, type CurrentUser } from "@/components/auth-context";
-import { cn } from "@/lib/cn";
+import { useStudioScope } from "@/components/studio-scope";
 import { api } from "@/lib/api";
+import { cn } from "@/lib/cn";
 import { apiError } from "@/lib/problem";
+import { canonicalLegacyRoute, studioRoutes, workspaceDestination } from "@/lib/studio-routes";
 
 type Client = components["schemas"]["Client"];
 type Workspace = components["schemas"]["Workspace"];
@@ -35,62 +39,12 @@ type NavItem = {
   href: string;
   label: string;
   icon: ComponentType<{ className?: string }>;
-  workspaceScoped?: boolean;
-  adminOnly?: boolean;
+  exact?: boolean;
+  aliases?: string[];
 };
 
-const primary: NavItem[] = [
-  { href: "/clients", label: "Khách hàng", icon: BriefcaseBusiness },
-  { href: "/products", label: "Sản phẩm", icon: PackageSearch, workspaceScoped: true },
-  { href: "/media", label: "Thư viện media", icon: LibraryBig, workspaceScoped: true },
-  { href: "/campaigns", label: "Chiến dịch", icon: FolderKanban, workspaceScoped: true },
-  { href: "/analytics", label: "Phân tích", icon: ChartNoAxesCombined, workspaceScoped: true },
-];
-
-const secondary: NavItem[] = [
-  { href: "/operations", label: "Vận hành", icon: Activity, adminOnly: true },
-  { href: "/settings/characters", label: "Nhân vật", icon: UsersRound, workspaceScoped: true },
-  { href: "/settings/providers", label: "Nhà cung cấp", icon: DatabaseZap, adminOnly: true },
-  { href: "/settings/meta", label: "Kết nối Meta", icon: Megaphone, workspaceScoped: true },
-  { href: "/internal-users", label: "Người dùng", icon: UserCog, adminOnly: true },
-  { href: "/account", label: "Tài khoản", icon: ShieldCheck },
-];
-
-function hrefWithScope(item: NavItem, clientId: string, workspaceId: string) {
-  if (!item.workspaceScoped) return item.href;
-  const query = new URLSearchParams();
-  if (clientId) query.set("clientId", clientId);
-  if (workspaceId) query.set("workspaceId", workspaceId);
-  const serialized = query.toString();
-  return serialized ? `${item.href}?${serialized}` : item.href;
-}
-
-function NavLink({ item, clientId, workspaceId, onNavigate }: { item: NavItem; clientId: string; workspaceId: string; onNavigate?: () => void }) {
-  const pathname = usePathname();
-  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-  const Icon = item.icon;
-  return (
-    <Link
-      href={hrefWithScope(item, clientId, workspaceId)}
-      onClick={onNavigate}
-      className={cn(
-        "group flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-semibold transition",
-        active ? "bg-[var(--lime)] text-[var(--ink)]" : "text-[#5e685f] hover:bg-white/70 hover:text-[var(--ink)]",
-      )}
-      aria-current={active ? "page" : undefined}
-    >
-      <Icon className="size-4.5" />
-      <span className="flex-1">{item.label}</span>
-      {active ? <ChevronRight className="size-4" /> : null}
-    </Link>
-  );
-}
-
-function ScopeSwitcher({ clientId, workspaceId }: { clientId: string; workspaceId: string }) {
-  const pathname = usePathname();
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const clients = useQuery({
+function useScopeClients() {
+  return useQuery({
     queryKey: ["scope-clients"],
     queryFn: async () => {
       const { data, error } = await api.GET("/clients", { params: { query: { page: 1, pageSize: 100 } } });
@@ -98,7 +52,10 @@ function ScopeSwitcher({ clientId, workspaceId }: { clientId: string; workspaceI
       return data.items;
     },
   });
-  const workspaces = useQuery({
+}
+
+function useScopeWorkspaces(clientId: string) {
+  return useQuery({
     queryKey: ["scope-workspaces", clientId],
     enabled: Boolean(clientId),
     queryFn: async () => {
@@ -107,71 +64,137 @@ function ScopeSwitcher({ clientId, workspaceId }: { clientId: string; workspaceI
       return data.items;
     },
   });
+}
 
-  const replaceScope = (nextClientId: string, nextWorkspaceId: string) => {
-    const query = new URLSearchParams(searchParams.toString());
-    if (nextClientId) query.set("clientId", nextClientId); else query.delete("clientId");
-    if (nextWorkspaceId) query.set("workspaceId", nextWorkspaceId); else query.delete("workspaceId");
-    const serialized = query.toString();
-    router.replace(serialized ? `${pathname}?${serialized}` : pathname);
-    if (nextClientId && nextWorkspaceId) {
-      localStorage.setItem("studio:last-scope", JSON.stringify({ clientId: nextClientId, workspaceId: nextWorkspaceId }));
+function NavLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
+  const pathname = usePathname();
+  const aliases = item.aliases ?? [];
+  const active = item.exact
+    ? pathname === item.href || aliases.some((alias) => pathname === alias || pathname.startsWith(`${alias}/`))
+    : pathname === item.href || pathname.startsWith(`${item.href}/`) || aliases.some((alias) => pathname === alias || pathname.startsWith(`${alias}/`));
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      className={cn(
+        "group flex min-h-11 items-center gap-3 rounded-2xl px-3 text-sm font-semibold transition",
+        active ? "bg-[var(--lime)] text-[var(--ink)]" : "text-[#5e685f] hover:bg-white/75 hover:text-[var(--ink)]",
+      )}
+      aria-current={active ? "page" : undefined}
+    >
+      <Icon className="size-4.5 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      {active ? <ChevronRight className="size-4 shrink-0" /> : null}
+    </Link>
+  );
+}
+
+function NavSection({ label, items, onNavigate }: { label: string; items: NavItem[]; onNavigate: () => void }) {
+  if (!items.length) return null;
+  return (
+    <section className="mt-5">
+      <h2 className="mb-2 px-3 text-[0.65rem] font-black uppercase tracking-[0.16em] text-[var(--muted)]">{label}</h2>
+      <nav aria-label={label} className="grid gap-1">
+        {items.map((item) => <NavLink key={item.href} item={item} onNavigate={onNavigate} />)}
+      </nav>
+    </section>
+  );
+}
+
+function ScopeSwitcher({
+  clientId,
+  workspaceId,
+  clients,
+  workspaces,
+  loadingWorkspaces,
+  providerMode,
+  hasError,
+}: {
+  clientId: string;
+  workspaceId: string;
+  clients: Client[];
+  workspaces: Workspace[];
+  loadingWorkspaces: boolean;
+  providerMode?: boolean;
+  hasError: boolean;
+}) {
+  const pathname = usePathname();
+  const router = useRouter();
+
+  const selectClient = (nextClientId: string) => {
+    if (!nextClientId) {
+      router.push(studioRoutes.clients);
+      return;
     }
+    localStorage.setItem("studio:last-client", nextClientId);
+    router.push(studioRoutes.client(nextClientId));
   };
 
-  useEffect(() => {
-    if (clientId || workspaceId) return;
-    try {
-      const stored = JSON.parse(localStorage.getItem("studio:last-scope") ?? "null") as { clientId?: string; workspaceId?: string } | null;
-      if (stored?.clientId && stored.workspaceId) replaceScope(stored.clientId, stored.workspaceId);
-    } catch {
-      localStorage.removeItem("studio:last-scope");
+  const selectWorkspace = (nextWorkspaceId: string) => {
+    if (!clientId || !nextWorkspaceId) {
+      router.push(clientId ? studioRoutes.client(clientId) : studioRoutes.clients);
+      return;
     }
-    // Scope restoration intentionally runs only when URL scope is absent on entry.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    localStorage.setItem("studio:last-scope", JSON.stringify({ clientId, workspaceId: nextWorkspaceId }));
+    router.push(workspaceDestination(pathname, clientId, nextWorkspaceId));
+  };
 
-  const clientItems = clients.data ?? [];
-  const workspaceItems = workspaces.data ?? [];
   return (
-    <div className="mb-5 grid gap-2 rounded-2xl border border-[var(--line)] bg-white/70 p-3" aria-label="Phạm vi làm việc">
-      <label className="grid gap-1 text-[0.65rem] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">
+    <div className="rounded-3xl border border-[var(--line)] bg-white/75 p-3" aria-label="Phạm vi làm việc">
+      <label className="grid gap-1.5 text-[0.65rem] font-black uppercase tracking-[0.14em] text-[var(--muted)]">
         Khách hàng
         <select
-          className="min-h-10 rounded-xl border border-[var(--line)] bg-white px-3 text-sm font-semibold normal-case tracking-normal text-[var(--ink)]"
+          className="min-h-11 w-full rounded-xl border border-[var(--line)] bg-white px-3 text-sm font-bold normal-case tracking-normal text-[var(--ink)]"
           value={clientId}
-          onChange={(event) => replaceScope(event.target.value, "")}
+          onChange={(event) => selectClient(event.target.value)}
         >
           <option value="">Chọn khách hàng</option>
-          {clientItems.map((item: Client) => <option key={item.id} value={item.id}>{item.companyName}</option>)}
+          {clients.map((item) => <option key={item.id} value={item.id}>{item.companyName}{item.status === "ARCHIVED" ? " · Đã lưu trữ" : ""}</option>)}
         </select>
       </label>
-      <label className="grid gap-1 text-[0.65rem] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">
+      <label className="mt-3 grid gap-1.5 text-[0.65rem] font-black uppercase tracking-[0.14em] text-[var(--muted)]">
         Workspace
         <select
-          className="min-h-10 rounded-xl border border-[var(--line)] bg-white px-3 text-sm font-semibold normal-case tracking-normal text-[var(--ink)] disabled:opacity-50"
+          className="min-h-11 w-full rounded-xl border border-[var(--line)] bg-white px-3 text-sm font-bold normal-case tracking-normal text-[var(--ink)] disabled:opacity-50"
           value={workspaceId}
-          disabled={!clientId || workspaces.isLoading}
-          onChange={(event) => replaceScope(clientId, event.target.value)}
+          disabled={!clientId || loadingWorkspaces}
+          onChange={(event) => selectWorkspace(event.target.value)}
         >
           <option value="">{clientId ? "Chọn workspace" : "Chọn khách hàng trước"}</option>
-          {workspaceItems.map((item: Workspace) => <option key={item.id} value={item.id}>{item.name}</option>)}
+          {workspaces.map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === "ARCHIVED" ? " · Đã lưu trữ" : ""}</option>)}
         </select>
       </label>
-      {clients.error || workspaces.error ? <p role="alert" className="text-xs font-semibold text-[var(--coral)]">Không thể tải phạm vi làm việc.</p> : null}
+      {clientId && providerMode !== undefined ? (
+        <div className={cn("mt-3 flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold", providerMode ? "bg-[#fff0c9] text-[#79580b]" : "bg-[#dcefdc] text-[#28643c]") }>
+          <DatabaseZap className="size-3.5" />{providerMode ? "Provider: Demo" : "Provider: Live"}
+        </div>
+      ) : null}
+      {hasError ? <p role="alert" className="mt-3 text-xs font-semibold text-[var(--coral)]">Không thể tải đầy đủ phạm vi làm việc.</p> : null}
     </div>
   );
 }
 
-function ShellContent({ user, demoMode, children }: { user: CurrentUser; demoMode: boolean; children: ReactNode }) {
+function ShellContent({ user, children }: { user: CurrentUser; children: ReactNode }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { clientId, workspaceId } = useStudioScope();
   const [navigationOpen, setNavigationOpen] = useState(false);
   const navigationRef = useRef<HTMLElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
-  const clientId = searchParams.get("clientId") ?? "";
-  const workspaceId = searchParams.get("workspaceId") ?? "";
+  const clients = useScopeClients();
+  const workspaces = useScopeWorkspaces(clientId);
+  const providerMode = useQuery({
+    queryKey: ["provider-configuration", clientId],
+    enabled: user.role === "ADMIN" && Boolean(clientId),
+    queryFn: async () => {
+      const { data, error } = await api.GET("/clients/{clientId}/provider-configuration", { params: { path: { clientId } } });
+      if (error || !data) throw apiError(error, "Không thể tải provider mode.");
+      return data;
+    },
+  });
   const logout = useMutation({
     mutationFn: async () => {
       const { error } = await api.POST("/auth/logout");
@@ -183,7 +206,45 @@ function ShellContent({ user, demoMode, children }: { user: CurrentUser; demoMod
       router.refresh();
     },
   });
-  const secondaryItems = secondary.filter((item) => !item.adminOnly || user.role === "ADMIN");
+
+  const clientItems = clients.data ?? [];
+  const workspaceItems = workspaces.data ?? [];
+  const selectedClient = clientItems.find((item) => item.id === clientId);
+  const selectedWorkspace = workspaceItems.find((item) => item.id === workspaceId);
+  const closeNavigation = () => setNavigationOpen(false);
+  const clientItemsNav: NavItem[] = clientId ? [
+    { href: studioRoutes.client(clientId), label: "Tổng quan", icon: LayoutDashboard, exact: true },
+    { href: studioRoutes.clientProfile(clientId), label: "Hồ sơ & liên hệ", icon: BriefcaseBusiness, exact: true },
+    { href: studioRoutes.clientWorkspaces(clientId), label: "Workspaces", icon: PanelsTopLeft, exact: true },
+    ...(user.role === "ADMIN" ? [{ href: studioRoutes.clientProviders(clientId), label: "Nhà cung cấp", icon: DatabaseZap, exact: true } satisfies NavItem] : []),
+  ] : [];
+  const workspaceItemsNav: NavItem[] = clientId && workspaceId ? [
+    { href: studioRoutes.workspace(clientId, workspaceId), label: "Tổng quan", icon: LayoutDashboard, exact: true, aliases: ["/workspaces"] },
+    { href: studioRoutes.brands(clientId, workspaceId), label: "Thương hiệu", icon: Palette },
+    { href: studioRoutes.products(clientId, workspaceId), label: "Sản phẩm & Product Truth", icon: PackageSearch, aliases: ["/products"] },
+    { href: studioRoutes.media(clientId, workspaceId), label: "Thư viện media", icon: LibraryBig, aliases: ["/media"] },
+    { href: studioRoutes.characters(clientId, workspaceId), label: "Nhân vật", icon: UsersRound, aliases: ["/settings/characters"] },
+    { href: studioRoutes.campaigns(clientId, workspaceId), label: "Chiến dịch", icon: FolderKanban, aliases: ["/campaigns"] },
+    { href: studioRoutes.meta(clientId, workspaceId), label: "Kết nối Meta", icon: Megaphone, aliases: ["/settings/meta"] },
+    { href: studioRoutes.analytics(clientId, workspaceId), label: "Phân tích", icon: BarChart3, aliases: ["/analytics"] },
+  ] : [];
+  const systemItems: NavItem[] = [
+    ...(user.role === "ADMIN" ? [
+      { href: "/operations", label: "Vận hành", icon: Activity } satisfies NavItem,
+      { href: "/internal-users", label: "Người dùng nội bộ", icon: UserCog } satisfies NavItem,
+    ] : []),
+    { href: "/account", label: "Tài khoản", icon: ShieldCheck },
+  ];
+
+  useEffect(() => {
+    const canonical = canonicalLegacyRoute(pathname, { clientId, workspaceId });
+    if (!canonical) return;
+    const remaining = new URLSearchParams(searchParams.toString());
+    remaining.delete("clientId");
+    remaining.delete("workspaceId");
+    const serialized = remaining.toString();
+    router.replace(serialized ? `${canonical}?${serialized}` : canonical);
+  }, [clientId, pathname, router, searchParams, workspaceId]);
 
   useEffect(() => {
     if (!navigationOpen) return;
@@ -210,17 +271,20 @@ function ShellContent({ user, demoMode, children }: { user: CurrentUser; demoMod
     };
   }, [navigationOpen]);
 
+  const contextTitle = selectedClient?.companyName ?? "Marketing Ops";
+  const contextSubtitle = selectedWorkspace?.name ?? (clientId ? "Tổng quan khách hàng" : "AI Product Marketing Studio");
+
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[288px_minmax(0,1fr)]">
+    <div className="min-h-screen lg:grid lg:grid-cols-[280px_minmax(0,1fr)]">
       <a href="#main-content" className="skip-link">Bỏ qua điều hướng</a>
       <header inert={navigationOpen ? true : undefined} aria-hidden={navigationOpen ? true : undefined} className="sticky top-0 z-30 flex min-h-16 items-center justify-between border-b border-[var(--line)] bg-[#edf0e7]/95 px-4 backdrop-blur lg:hidden">
-        <Link href="/clients" className="flex items-center gap-3" aria-label="AI Studio — về trang khách hàng">
-          <span className="grid size-10 place-items-center rounded-2xl bg-[var(--ink)] text-[var(--lime)]"><Clapperboard className="size-5" /></span>
-          <span className="font-serif text-base font-bold text-[var(--ink)]">Marketing Ops</span>
+        <Link href={clientId ? studioRoutes.client(clientId) : studioRoutes.clients} className="flex min-w-0 items-center gap-3" aria-label="Về trang tổng quan">
+          <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-[var(--ink)] text-[var(--lime)]"><Clapperboard className="size-5" /></span>
+          <span className="min-w-0"><span className="block truncate text-sm font-bold text-[var(--ink)]">{contextTitle}</span><span className="block truncate text-xs text-[var(--muted)]">{contextSubtitle}</span></span>
         </Link>
-        <button ref={menuButtonRef} type="button" className="grid size-11 place-items-center rounded-2xl border border-[var(--line)] bg-white" aria-label="Mở điều hướng" aria-controls="studio-navigation" aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}><Menu className="size-5" /></button>
+        <button ref={menuButtonRef} type="button" className="grid size-11 shrink-0 place-items-center rounded-2xl border border-[var(--line)] bg-white" aria-label="Mở điều hướng" aria-controls="studio-navigation" aria-expanded={navigationOpen} onClick={() => setNavigationOpen(true)}><Menu className="size-5" /></button>
       </header>
-      {navigationOpen ? <button type="button" tabIndex={-1} className="fixed inset-0 z-40 bg-[var(--ink)]/45 backdrop-blur-[1px] lg:hidden" aria-label="Đóng điều hướng" onClick={() => setNavigationOpen(false)} /> : null}
+      {navigationOpen ? <button type="button" tabIndex={-1} className="fixed inset-0 z-40 bg-[var(--ink)]/45 backdrop-blur-[1px] lg:hidden" aria-label="Đóng điều hướng" onClick={closeNavigation} /> : null}
       <aside
         id="studio-navigation"
         ref={navigationRef}
@@ -234,37 +298,47 @@ function ShellContent({ user, demoMode, children }: { user: CurrentUser; demoMod
         )}
       >
         <div className="mb-5 flex items-center gap-2">
-          <Link href="/clients" className="flex min-w-0 flex-1 items-center gap-3 px-2" onClick={() => setNavigationOpen(false)}>
-          <span className="grid size-11 place-items-center rounded-2xl bg-[var(--ink)] text-[var(--lime)]"><Clapperboard className="size-5" /></span>
-          <span><span className="block text-xs font-bold uppercase tracking-[0.18em] text-[var(--moss)]">AI Studio</span><span className="block font-serif text-lg font-bold text-[var(--ink)]">Marketing Ops</span></span>
+          <Link href={studioRoutes.clients} className="flex min-w-0 flex-1 items-center gap-3 px-2" onClick={closeNavigation}>
+            <span className="grid size-11 place-items-center rounded-2xl bg-[var(--ink)] text-[var(--lime)]"><Clapperboard className="size-5" /></span>
+            <span><span className="block text-xs font-bold uppercase tracking-[0.18em] text-[var(--moss)]">AI Studio</span><span className="block font-serif text-lg font-bold text-[var(--ink)]">Marketing Ops</span></span>
           </Link>
-          <button data-drawer-close type="button" className="grid size-11 shrink-0 place-items-center rounded-2xl hover:bg-white lg:hidden" aria-label="Đóng điều hướng" onClick={() => setNavigationOpen(false)}><X className="size-5" /></button>
+          <button data-drawer-close type="button" className="grid size-11 shrink-0 place-items-center rounded-2xl hover:bg-white lg:hidden" aria-label="Đóng điều hướng" onClick={closeNavigation}><X className="size-5" /></button>
         </div>
-        <ScopeSwitcher clientId={clientId} workspaceId={workspaceId} />
-        <nav aria-label="Điều hướng chính" className="grid gap-1">{primary.map((item) => <NavLink key={item.href} item={item} clientId={clientId} workspaceId={workspaceId} onNavigate={() => setNavigationOpen(false)} />)}</nav>
-        <div className="my-4 border-t border-[var(--line)]" />
-        <nav aria-label="Cấu hình và vận hành" className="grid gap-1">{secondaryItems.map((item) => <NavLink key={item.href} item={item} clientId={clientId} workspaceId={workspaceId} onNavigate={() => setNavigationOpen(false)} />)}</nav>
-        <div className="mt-5 rounded-3xl bg-[var(--ink)] p-4 text-white">
-          <div className="mb-2 flex items-center gap-2 text-sm font-bold"><Boxes className="size-4 text-[var(--lime)]" />{demoMode ? "Chế độ demo" : "Môi trường live"}</div>
-          <p className="text-xs leading-5 text-white/65">{demoMode ? "Tác vụ trả phí bị khóa; kết quả mô phỏng được gắn nhãn và lưu dấu vết." : "Tác vụ provider có thể phát sinh chi phí và luôn tuân theo approval guardrails."}</p>
-        </div>
-        <div className="mt-4 flex items-center gap-3 rounded-3xl border border-[var(--line)] bg-white/70 p-3 lg:mt-auto">
+
+        <ScopeSwitcher
+          clientId={clientId}
+          workspaceId={workspaceId}
+          clients={clientItems}
+          workspaces={workspaceItems}
+          loadingWorkspaces={workspaces.isLoading}
+          providerMode={providerMode.data?.demoMode}
+          hasError={Boolean(clients.error || workspaces.error || providerMode.error)}
+        />
+
+        <NavSection label="Danh mục" items={[{ href: studioRoutes.clients, label: "Tất cả khách hàng", icon: BriefcaseBusiness, exact: true }]} onNavigate={closeNavigation} />
+        <NavSection label={selectedClient?.companyName ?? "Khách hàng"} items={clientItemsNav} onNavigate={closeNavigation} />
+        <NavSection label={selectedWorkspace?.name ?? "Workspace"} items={workspaceItemsNav} onNavigate={closeNavigation} />
+        <NavSection label="Hệ thống" items={systemItems} onNavigate={closeNavigation} />
+
+        <div className="mt-5 flex items-center gap-3 rounded-3xl border border-[var(--line)] bg-white/75 p-3 lg:mt-auto">
           <span className="grid size-10 shrink-0 place-items-center rounded-full bg-[var(--lime)] text-sm font-black text-[var(--ink)]">{user.displayName.slice(0, 1).toUpperCase()}</span>
-          <Link href="/account" className="min-w-0 flex-1"><span className="block truncate text-sm font-bold">{user.displayName}</span><span className="block text-xs text-[var(--muted)]">{user.role}</span></Link>
-          <button className="grid size-10 place-items-center rounded-full text-[var(--muted)] hover:bg-white hover:text-[var(--ink)]" aria-label="Đăng xuất" disabled={logout.isPending} onClick={() => logout.mutate()}><LogOut className="size-4" /></button>
+          <Link href="/account" className="min-w-0 flex-1" onClick={closeNavigation}><span className="block truncate text-sm font-bold">{user.displayName}</span><span className="block text-xs text-[var(--muted)]">{user.role}</span></Link>
+          <button className="grid size-11 place-items-center rounded-full text-[var(--muted)] hover:bg-white hover:text-[var(--ink)]" aria-label="Đăng xuất" disabled={logout.isPending} onClick={() => logout.mutate()}><LogOut className="size-4" /></button>
         </div>
         {logout.error ? <p role="alert" className="mt-2 text-xs font-semibold text-[var(--coral)]">{logout.error.message}</p> : null}
       </aside>
-      <main id="main-content" tabIndex={-1} inert={navigationOpen ? true : undefined} aria-hidden={navigationOpen ? true : undefined} className="min-w-0 overflow-x-hidden px-4 py-6 sm:px-5 md:px-8 lg:px-10 lg:py-9">{children}</main>
+      <main id="main-content" tabIndex={-1} inert={navigationOpen ? true : undefined} aria-hidden={navigationOpen ? true : undefined} className="min-w-0 overflow-x-hidden px-4 py-6 sm:px-5 md:px-8 lg:px-10 lg:py-9">
+        <div className="mx-auto w-full max-w-[1600px]">{children}</div>
+      </main>
     </div>
   );
 }
 
-export function AppShell({ user, demoMode, children }: { user: CurrentUser; demoMode: boolean; children: ReactNode }) {
+export function AppShell({ user, children }: { user: CurrentUser; children: ReactNode }) {
   return (
     <CurrentUserProvider user={user}>
       <Suspense fallback={<div className="min-h-screen bg-[#f6f5ee]" aria-label="Đang tải giao diện" />}>
-        <ShellContent user={user} demoMode={demoMode}>{children}</ShellContent>
+        <ShellContent user={user}>{children}</ShellContent>
       </Suspense>
     </CurrentUserProvider>
   );

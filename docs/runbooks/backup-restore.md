@@ -30,7 +30,7 @@ ALLOW_DESTRUCTIVE_RESTORE=verify-only \
 ```
 
 4. Apply no migrations before the check. Confirm the restored Atlas revision, row-count reasonableness, foreign keys, check constraints, and the newest `audit_logs.occurred_at` timestamp.
-5. Start the API and worker in `DEMO_MODE=true` against the isolated database with outbound provider traffic denied. Check `/v1/health/ready`, `/v1/operations/overview`, signed media reads against the restored R2 test copy, and one no-cost demo workflow.
+5. Start the API against the isolated database with outbound provider traffic denied. Through the Provider UI, keep the restored test client in demo mode and point its R2 profile to the restored test copy; then start the worker. Check `/v1/health/ready`, `/v1/operations/overview`, signed media reads, and one no-cost demo workflow.
 6. Record backup timestamp, recovery duration, row counts, object sample results, operator, and any remediation. Destroy the isolated database after evidence is retained.
 
 ## Production recovery

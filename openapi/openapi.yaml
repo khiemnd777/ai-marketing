@@ -121,6 +121,18 @@ paths:
                 $ref: '#/components/schemas/InternalUser'
         '401':
           $ref: '#/components/responses/Problem'
+    put:
+      operationId: updateCurrentUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateCurrentUserRequest' }
+      responses:
+        '200': { description: Current user profile updated., content: { application/json: { schema: { $ref: '#/components/schemas/InternalUser' } } } }
+        '401': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
   /auth/change-password:
     post:
       operationId: changeCurrentUserPassword
@@ -214,6 +226,21 @@ paths:
         '404': { $ref: '#/components/responses/Problem' }
         '409': { $ref: '#/components/responses/Problem' }
         '422': { $ref: '#/components/responses/Problem' }
+  /internal-users/{userId}:
+    parameters: [{ $ref: '#/components/parameters/UserId' }]
+    put:
+      operationId: updateInternalUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateInternalUserRequest' }
+      responses:
+        '200': { description: Internal user profile and role updated., content: { application/json: { schema: { $ref: '#/components/schemas/InternalUser' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
   /internal-users/{userId}/status:
     parameters: [{ $ref: '#/components/parameters/UserId' }]
     patch:
@@ -257,7 +284,7 @@ paths:
         '404': { $ref: '#/components/responses/Problem' }
     put:
       operationId: updateClient
-      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ClientInput' } } } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ClientUpdateInput' } } } }
       responses:
         '200': { description: Client updated., content: { application/json: { schema: { $ref: '#/components/schemas/Client' } } } }
         '409': { $ref: '#/components/responses/Problem' }
@@ -268,6 +295,35 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/StatusChange' } } } }
       responses:
         '200': { description: Client status changed., content: { application/json: { schema: { $ref: '#/components/schemas/Client' } } } }
+  /clients/{clientId}/provider-configuration:
+    parameters: [{ $ref: '#/components/parameters/ClientId' }]
+    get:
+      operationId: getClientProviderConfiguration
+      responses:
+        '200': { description: Client-scoped provider configuration with secret presence only., content: { application/json: { schema: { $ref: '#/components/schemas/ClientProviderConfiguration' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /clients/{clientId}/provider-configuration/mode:
+    parameters: [{ $ref: '#/components/parameters/ClientId' }]
+    put:
+      operationId: updateClientProviderMode
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProviderModeInput' } } } }
+      responses:
+        '200': { description: Client-scoped demo/live mode updated., content: { application/json: { schema: { $ref: '#/components/schemas/ClientProviderConfiguration' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /clients/{clientId}/provider-configuration/{provider}:
+    parameters:
+      - { $ref: '#/components/parameters/ClientId' }
+      - { name: provider, in: path, required: true, schema: { $ref: '#/components/schemas/ProviderKind' } }
+    put:
+      operationId: updateClientProviderConfiguration
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProviderConfigurationInput' } } } }
+      responses:
+        '200': { description: Provider configuration encrypted and updated for this client., content: { application/json: { schema: { $ref: '#/components/schemas/ClientProviderConfiguration' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
   /clients/{clientId}/workspaces:
     parameters: [{ $ref: '#/components/parameters/ClientId' }]
     get:
@@ -288,7 +344,7 @@ paths:
         '200': { description: Workspace., content: { application/json: { schema: { $ref: '#/components/schemas/Workspace' } } } }
     put:
       operationId: updateWorkspace
-      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/WorkspaceInput' } } } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/WorkspaceUpdateInput' } } } }
       responses:
         '200': { description: Workspace updated., content: { application/json: { schema: { $ref: '#/components/schemas/Workspace' } } } }
   /clients/{clientId}/workspaces/{workspaceId}/status:
@@ -351,7 +407,7 @@ paths:
         '200': { description: Product., content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
     put:
       operationId: updateProduct
-      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProductInput' } } } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProductUpdateInput' } } } }
       responses:
         '200': { description: New product version., content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
   /clients/{clientId}/workspaces/{workspaceId}/products/{productId}/status:
@@ -376,7 +432,7 @@ paths:
     parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/ProductId' }, { $ref: '#/components/parameters/FactId' }]
     put:
       operationId: updateProductFact
-      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProductFactInput' } } } }
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProductFactUpdateInput' } } } }
       responses:
         '200': { description: Product fact updated., content: { application/json: { schema: { $ref: '#/components/schemas/ProductFact' } } } }
         '409': { $ref: '#/components/responses/Problem' }
@@ -398,6 +454,16 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProductClaimInput' } } } }
       responses:
         '201': { description: Product claim created., content: { application/json: { schema: { $ref: '#/components/schemas/ProductClaim' } } } }
+  /clients/{clientId}/workspaces/{workspaceId}/products/{productId}/claims/{claimId}:
+    parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/ProductId' }, { $ref: '#/components/parameters/ClaimId' }]
+    put:
+      operationId: updateProductClaim
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProductClaimUpdateInput' } } } }
+      responses:
+        '200': { description: Product claim updated and returned to draft review., content: { application/json: { schema: { $ref: '#/components/schemas/ProductClaim' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
   /clients/{clientId}/workspaces/{workspaceId}/products/{productId}/claims/{claimId}/approve:
     parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/ProductId' }, { $ref: '#/components/parameters/ClaimId' }]
     post:
@@ -514,6 +580,19 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CharacterInput' } } } }
       responses:
         '201': { description: Character created., content: { application/json: { schema: { $ref: '#/components/schemas/Character' } } } }
+  /clients/{clientId}/workspaces/{workspaceId}/characters/{characterId}:
+    parameters:
+      - { $ref: '#/components/parameters/ClientId' }
+      - { $ref: '#/components/parameters/WorkspaceId' }
+      - { name: characterId, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      operationId: updateCharacter
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CharacterUpdateInput' } } } }
+      responses:
+        '200': { description: Workspace character updated; dependent script and scene approvals are invalidated., content: { application/json: { schema: { $ref: '#/components/schemas/Character' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
   /clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/characters:
     parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/CampaignId' }]
     get:
@@ -783,6 +862,16 @@ paths:
       responses:
         '201': { description: Approval-bound social post created., content: { application/json: { schema: { $ref: '#/components/schemas/SocialPost' } } } }
         '409': { $ref: '#/components/responses/Problem' }
+  /clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/social-posts/{postId}:
+    parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/CampaignId' }, { $ref: '#/components/parameters/PostId' }]
+    put:
+      operationId: updateSocialPost
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/SocialPostUpdateInput' } } } }
+      responses:
+        '200': { description: Unpublished social post updated and returned to approval required., content: { application/json: { schema: { $ref: '#/components/schemas/SocialPost' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
   /clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/social-posts/{postId}/review:
     parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/CampaignId' }, { $ref: '#/components/parameters/PostId' }]
     put:
@@ -817,6 +906,16 @@ paths:
       responses:
         '201': { description: Approval-required campaign configuration created; provider campaign is not yet active., content: { application/json: { schema: { $ref: '#/components/schemas/MetaAdCampaign' } } } }
         '409': { $ref: '#/components/responses/Problem' }
+  /clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/meta-ad-campaigns/{adCampaignId}:
+    parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/CampaignId' }, { $ref: '#/components/parameters/AdCampaignId' }]
+    put:
+      operationId: updateMetaAdCampaign
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MetaAdCampaignUpdateInput' } } } }
+      responses:
+        '200': { description: Pre-provider Meta Ads draft updated and returned to approval required., content: { application/json: { schema: { $ref: '#/components/schemas/MetaAdCampaign' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
   /clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/meta-ad-campaigns/{adCampaignId}/review:
     parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/CampaignId' }, { $ref: '#/components/parameters/AdCampaignId' }]
     put:
@@ -879,12 +978,6 @@ paths:
       responses:
         '200': { description: Human review recorded without executing an Ads action., content: { application/json: { schema: { $ref: '#/components/schemas/AnalyticsRecommendation' } } } }
         '409': { $ref: '#/components/responses/Problem' }
-  /operations/providers:
-    get:
-      operationId: getProviderStatus
-      responses:
-        '200': { description: Safe provider configuration status without credentials., content: { application/json: { schema: { $ref: '#/components/schemas/ProviderStatus' } } } }
-        '403': { $ref: '#/components/responses/Problem' }
   /operations/overview:
     get:
       operationId: getOperationsOverview
@@ -918,6 +1011,7 @@ paths:
       security: []
       parameters:
         - { name: token, in: query, required: true, schema: { type: string, minLength: 32 } }
+        - { name: clientId, in: query, required: true, schema: { type: string, format: uuid } }
       requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: true } } } }
       responses:
         '204': { description: Callback accepted idempotently. }
@@ -999,6 +1093,10 @@ components:
         market: { type: string, maxLength: 160, default: '' }
         internalNotes: { type: string, maxLength: 10000, default: '' }
         version: { type: integer, minimum: 1 }
+    ClientUpdateInput:
+      allOf:
+        - { $ref: '#/components/schemas/ClientInput' }
+        - { type: object, required: [version], properties: { version: { type: integer, minimum: 1 } } }
     Client:
       allOf:
         - { $ref: '#/components/schemas/ClientInput' }
@@ -1007,6 +1105,7 @@ components:
           properties:
             id: { type: string, format: uuid }
             status: { $ref: '#/components/schemas/LifecycleStatus' }
+            version: { type: integer, minimum: 1 }
             createdAt: { type: string, format: date-time }
             updatedAt: { type: string, format: date-time }
     ClientPage:
@@ -1024,6 +1123,10 @@ components:
         slug: { type: string, pattern: '^[a-z0-9]+(?:-[a-z0-9]+)*$' }
         timezone: { type: string, maxLength: 100, default: Asia/Ho_Chi_Minh }
         version: { type: integer, minimum: 1 }
+    WorkspaceUpdateInput:
+      allOf:
+        - { $ref: '#/components/schemas/WorkspaceInput' }
+        - { type: object, required: [version], properties: { version: { type: integer, minimum: 1 } } }
     Workspace:
       allOf:
         - { $ref: '#/components/schemas/WorkspaceInput' }
@@ -1033,6 +1136,7 @@ components:
             id: { type: string, format: uuid }
             clientId: { type: string, format: uuid }
             status: { $ref: '#/components/schemas/LifecycleStatus' }
+            version: { type: integer, minimum: 1 }
             createdAt: { type: string, format: date-time }
             updatedAt: { type: string, format: date-time }
     BrandProfileInput:
@@ -1101,6 +1205,10 @@ components:
         verticalData: { type: object, additionalProperties: true }
         changeSummary: { type: string, maxLength: 1000, default: '' }
         version: { type: integer, minimum: 1 }
+    ProductUpdateInput:
+      allOf:
+        - { $ref: '#/components/schemas/ProductInput' }
+        - { type: object, required: [version], properties: { version: { type: integer, minimum: 1 } } }
     Product:
       allOf:
         - { $ref: '#/components/schemas/ProductInput' }
@@ -1112,6 +1220,7 @@ components:
             workspaceId: { type: string, format: uuid }
             status: { type: string, enum: [DRAFT, APPROVED, ARCHIVED] }
             currentVersion: { type: integer, minimum: 1 }
+            version: { type: integer, minimum: 1 }
             createdAt: { type: string, format: date-time }
             updatedAt: { type: string, format: date-time }
     ProductFactInput:
@@ -1131,6 +1240,10 @@ components:
         expiresAt: { type: [string, 'null'], format: date-time }
         changeSummary: { type: string, maxLength: 1000, default: '' }
         version: { type: integer, minimum: 1 }
+    ProductFactUpdateInput:
+      allOf:
+        - { $ref: '#/components/schemas/ProductFactInput' }
+        - { type: object, required: [version], properties: { version: { type: integer, minimum: 1 } } }
     ProductFact:
       allOf:
         - { $ref: '#/components/schemas/ProductFactInput' }
@@ -1143,6 +1256,7 @@ components:
             workspaceId: { type: string, format: uuid }
             status: { $ref: '#/components/schemas/FactStatus' }
             lockedValue: { type: boolean }
+            version: { type: integer, minimum: 1 }
             approvedBy: { type: [string, 'null'], format: uuid }
             approvedAt: { type: [string, 'null'], format: date-time }
             createdAt: { type: string, format: date-time }
@@ -1159,6 +1273,10 @@ components:
         mediaAssetIds: { type: array, items: { type: string, format: uuid }, default: [] }
         changeSummary: { type: string, maxLength: 1000, default: '' }
         version: { type: integer, minimum: 1 }
+    ProductClaimUpdateInput:
+      allOf:
+        - { $ref: '#/components/schemas/ProductClaimInput' }
+        - { type: object, required: [version], properties: { version: { type: integer, minimum: 1 } } }
     ProductClaim:
       allOf:
         - { $ref: '#/components/schemas/ProductClaimInput' }
@@ -1168,6 +1286,7 @@ components:
             id: { type: string, format: uuid }
             productId: { type: string, format: uuid }
             status: { $ref: '#/components/schemas/FactStatus' }
+            version: { type: integer, minimum: 1 }
             approvedAt: { type: [string, 'null'], format: date-time }
             createdAt: { type: string, format: date-time }
             updatedAt: { type: string, format: date-time }
@@ -1231,6 +1350,11 @@ components:
         supportedLanguages: { type: array, minItems: 1, uniqueItems: true, items: { type: string, enum: [vi, en] } }
         consentStatus: { type: string, enum: [NOT_REQUIRED, PENDING, APPROVED, REVOKED, EXPIRED] }
         previewAssetId: { type: [string, 'null'], format: uuid }
+        version: { type: integer, minimum: 1 }
+    CharacterUpdateInput:
+      allOf:
+        - { $ref: '#/components/schemas/CharacterInput' }
+        - { type: object, required: [version], properties: { version: { type: integer, minimum: 1 } } }
     Character:
       allOf:
         - { $ref: '#/components/schemas/CharacterInput' }
@@ -1697,6 +1821,11 @@ components:
         mediaAssetId: { type: string, format: uuid }
         caption: { type: string, minLength: 1, maxLength: 2200 }
         scheduledAt: { type: [string, 'null'], format: date-time }
+        version: { type: integer, minimum: 1 }
+    SocialPostUpdateInput:
+      allOf:
+        - { $ref: '#/components/schemas/SocialPostInput' }
+        - { type: object, required: [version], properties: { version: { type: integer, minimum: 1 } } }
     SocialPost:
       allOf:
         - $ref: '#/components/schemas/SocialPostInput'
@@ -1780,6 +1909,11 @@ components:
         utmParameters: { type: object, additionalProperties: { type: string } }
         conversionEvent: { type: [string, 'null'] }
         creative: { $ref: '#/components/schemas/MetaAdCreativeInput' }
+        version: { type: integer, minimum: 1 }
+    MetaAdCampaignUpdateInput:
+      allOf:
+        - { $ref: '#/components/schemas/MetaAdCampaignInput' }
+        - { type: object, required: [version], properties: { version: { type: integer, minimum: 1 } } }
     MetaAdCampaign:
       allOf:
         - $ref: '#/components/schemas/MetaAdCampaignInput'
@@ -1955,22 +2089,66 @@ components:
         action: { type: string, enum: [APPROVE, REJECT] }
         version: { type: integer, minimum: 1 }
         notes: { type: string, maxLength: 4000 }
-    ProviderHealth:
+    ProviderKind:
+      type: string
+      enum: [OPENAI, SEEDANCE, R2, META, RENDERER]
+    ProviderSettingValue:
+      oneOf:
+        - { type: string }
+        - { type: number }
+        - { type: boolean }
+    ProviderConfiguration:
       type: object
-      required: [name, configured]
+      additionalProperties: false
+      required: [provider, enabled, configured, settings, configuredSecretFields, version]
       properties:
-        name: { type: string }
+        provider: { $ref: '#/components/schemas/ProviderKind' }
+        enabled: { type: boolean }
         configured: { type: boolean }
-        model: { type: string }
-        apiVersion: { type: string }
-        bucket: { type: string }
-        baseUrl: { type: string }
-    ProviderStatus:
+        settings:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/ProviderSettingValue' }
+        configuredSecretFields:
+          type: array
+          items: { type: string, enum: [apiKey, webhookSecret, accessKeyId, secretAccessKey, appSecret] }
+        version: { type: integer, format: int64, minimum: 0 }
+    ClientProviderConfiguration:
       type: object
-      required: [demoMode, providers]
+      additionalProperties: false
+      required: [clientId, demoMode, version, providers]
+      properties:
+        clientId: { type: string, format: uuid }
+        demoMode: { type: boolean }
+        version: { type: integer, format: int64, minimum: 0 }
+        providers:
+          type: array
+          minItems: 5
+          maxItems: 5
+          items: { $ref: '#/components/schemas/ProviderConfiguration' }
+    ProviderModeInput:
+      type: object
+      additionalProperties: false
+      required: [demoMode, version]
       properties:
         demoMode: { type: boolean }
-        providers: { type: array, items: { $ref: '#/components/schemas/ProviderHealth' } }
+        version: { type: integer, format: int64, minimum: 0 }
+    ProviderConfigurationInput:
+      type: object
+      additionalProperties: false
+      required: [enabled, settings, secrets, clearSecrets, version]
+      properties:
+        enabled: { type: boolean }
+        settings:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/ProviderSettingValue' }
+        secrets:
+          type: object
+          additionalProperties: { type: string, maxLength: 16384 }
+        clearSecrets:
+          type: array
+          uniqueItems: true
+          items: { type: string, enum: [apiKey, webhookSecret, accessKeyId, secretAccessKey, appSecret] }
+        version: { type: integer, format: int64, minimum: 0 }
     OperationsQueueMetric:
       type: object
       required: [queue, state, count, oldestAgeSeconds]
@@ -2312,6 +2490,37 @@ components:
           type: string
           minLength: 14
           maxLength: 200
+    UpdateCurrentUserRequest:
+      type: object
+      additionalProperties: false
+      required: [email, displayName, version]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        displayName:
+          type: string
+          minLength: 2
+          maxLength: 120
+        version: { type: integer, minimum: 1 }
+    UpdateInternalUserRequest:
+      type: object
+      additionalProperties: false
+      required: [email, displayName, role, version]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        displayName:
+          type: string
+          minLength: 2
+          maxLength: 120
+        role:
+          type: string
+          enum: [ADMIN, OPERATOR, REVIEWER]
+        version: { type: integer, minimum: 1 }
     ChangePasswordRequest:
       type: object
       additionalProperties: false

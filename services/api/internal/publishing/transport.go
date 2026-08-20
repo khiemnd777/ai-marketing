@@ -62,6 +62,22 @@ func (h *Handler) List(c fiber.Ctx) error {
 	}
 	return c.JSON(fiber.Map{"items": items})
 }
+func (h *Handler) Update(c fiber.Ctx) error {
+	a, b, p, id, e := scope(c, true)
+	if e != nil {
+		return writeError(c, e)
+	}
+	var input Input
+	if c.Bind().Body(&input) != nil {
+		return writeError(c, ErrInvalid)
+	}
+	principal, _ := auth.PrincipalFrom(c)
+	item, e := h.service.Update(c.Context(), a, b, p, id, principal, auth.MetadataFrom(c), input)
+	if e != nil {
+		return writeError(c, e)
+	}
+	return c.JSON(item)
+}
 func (h *Handler) Review(c fiber.Ctx) error {
 	a, b, p, id, err := scope(c, true)
 	if err != nil {

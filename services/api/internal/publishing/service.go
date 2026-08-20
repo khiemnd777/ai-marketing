@@ -13,6 +13,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/audit"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/auth"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/gen/db"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/jobs"
 )
 
@@ -28,6 +31,7 @@ type Input struct {
 	MediaAssetID    uuid.UUID  `json:"mediaAssetId"`
 	Caption         string     `json:"caption"`
 	ScheduledAt     *time.Time `json:"scheduledAt"`
+	Version         int64      `json:"version"`
 }
 type ReviewInput struct {
 	Action  string `json:"action"`
@@ -106,6 +110,66 @@ func (s *Service) Create(ctx context.Context, clientID, workspaceID, campaignID,
 	}
 	item, err := get(ctx, tx, clientID, workspaceID, campaignID, id)
 	if err != nil {
+		return Post{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Post{}, err
+	}
+	return item, nil
+}
+func (s *Service) Update(ctx context.Context, clientID, workspaceID, campaignID, postID uuid.UUID, actor auth.Principal, metadata auth.ClientMetadata, input Input) (Post, error) {
+	input.Caption = strings.TrimSpace(input.Caption)
+	if input.Version < 1 || len(input.Caption) < 1 || len(input.Caption) > 2200 || input.SocialAccountID == uuid.Nil || input.MediaAssetID == uuid.Nil {
+		return Post{}, ErrInvalid
+	}
+	if input.ScheduledAt != nil && input.ScheduledAt.Before(time.Now().Add(time.Minute)) {
+		return Post{}, ErrInvalid
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Post{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	before, err := scanPost(tx.QueryRow(ctx, postSelect+` WHERE p.id=$1 AND p.client_id=$2 AND p.workspace_id=$3 AND p.campaign_id=$4 FOR UPDATE`, postID, clientID, workspaceID, campaignID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Post{}, ErrNotFound
+	}
+	if err != nil {
+		return Post{}, err
+	}
+	if before.Version != input.Version || !map[string]bool{"DRAFT": true, "APPROVAL_REQUIRED": true, "CANCELLED": true}[before.Status] {
+		return Post{}, ErrConflict
+	}
+	var platform, mime string
+	var campaignApproved, accountConnected bool
+	err = tx.QueryRow(ctx, `SELECT a.platform::text,a.status IN ('CONNECTED','EXPIRING'),v.mime_type,EXISTS(SELECT 1 FROM campaigns c JOIN video_projects p ON p.campaign_id=c.id JOIN render_jobs r ON r.id=p.selected_render_job_id AND r.status='APPROVED' WHERE c.id=$1 AND c.client_id=$2 AND c.workspace_id=$3 AND c.status='APPROVED') FROM social_accounts a JOIN media_assets m ON m.id=$5 AND m.client_id=$2 AND m.workspace_id=$3 AND m.deleted_at IS NULL JOIN media_asset_versions v ON v.media_asset_id=m.id AND v.version=m.current_version WHERE a.id=$4 AND a.client_id=$2 AND a.workspace_id=$3 AND a.disconnected_at IS NULL`, campaignID, clientID, workspaceID, input.SocialAccountID, input.MediaAssetID).Scan(&platform, &accountConnected, &mime, &campaignApproved)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Post{}, ErrNotFound
+	}
+	if err != nil {
+		return Post{}, err
+	}
+	if !accountConnected || !campaignApproved || (!strings.HasPrefix(mime, "image/") && !strings.HasPrefix(mime, "video/")) {
+		return Post{}, ErrPrerequisite
+	}
+	hash := postHash(platform, input)
+	_, err = tx.Exec(ctx, `UPDATE social_posts SET social_account_id=$5,platform=$6::social_platform,media_asset_id=$7,caption=$8,scheduled_at=$9,status='APPROVAL_REQUIRED',content_hash=$10,reviewed_at=NULL,reviewed_by=NULL,review_notes='',version=version+1,updated_by=$11,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND campaign_id=$4 AND version=$12`, postID, clientID, workspaceID, campaignID, input.SocialAccountID, platform, input.MediaAssetID, input.Caption, input.ScheduledAt, hash, actor.UserID, input.Version)
+	if err != nil {
+		return Post{}, err
+	}
+	if _, err = tx.Exec(ctx, `WITH changed AS (
+		UPDATE approvals SET invalidated_at=now(),invalidation_reason='Social post content changed'
+		WHERE entity_type='SOCIAL_POST' AND entity_id=$1 AND invalidated_at IS NULL
+		RETURNING id,entity_version,entity_hash
+	) INSERT INTO approval_events(approval_id,event_type,actor_id,entity_version,entity_hash,notes)
+	SELECT id,'INVALIDATED',$2,entity_version,entity_hash,'Social post content changed' FROM changed`, postID, actor.UserID); err != nil {
+		return Post{}, err
+	}
+	item, err := get(ctx, tx, clientID, workspaceID, campaignID, postID)
+	if err != nil {
+		return Post{}, err
+	}
+	if err = audit.Record(ctx, db.New(tx), audit.Event{ActorID: uuid.NullUUID{UUID: actor.UserID, Valid: true}, Action: "social_post.updated", EntityType: "social_post", EntityID: uuid.NullUUID{UUID: postID, Valid: true}, ClientID: uuid.NullUUID{UUID: clientID, Valid: true}, WorkspaceID: uuid.NullUUID{UUID: workspaceID, Valid: true}, RequestID: metadata.RequestID, IPAddress: metadata.IPAddress, UserAgent: metadata.UserAgent, Outcome: "SUCCESS", Before: before, After: item}); err != nil {
 		return Post{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
@@ -211,6 +275,7 @@ func getByKey(ctx context.Context, q queryer, clientID, workspaceID, campaignID 
 	return scanPost(q.QueryRow(ctx, postSelect+` WHERE p.client_id=$1 AND p.workspace_id=$2 AND p.campaign_id=$3 AND p.idempotency_key=$4`, clientID, workspaceID, campaignID, key))
 }
 func postHash(platform string, input Input) string {
+	input.Version = 0
 	raw, _ := json.Marshal(struct {
 		Platform string
 		Input    Input

@@ -122,6 +122,22 @@ func (h *Handler) CreateClaim(c fiber.Ctx) error {
 	}
 	return c.Status(201).JSON(v)
 }
+func (h *Handler) UpdateClaim(c fiber.Ctx) error {
+	a, b, p, id, e := ids(c, "claimId")
+	if e != nil {
+		return out(c, e)
+	}
+	var i ClaimInput
+	if c.Bind().Body(&i) != nil {
+		return out(c, ErrInvalid)
+	}
+	actor, _ := auth.PrincipalFrom(c)
+	v, e := h.service.UpdateClaim(c.Context(), a, b, p, id, actor.UserID, i)
+	if e != nil {
+		return out(c, e)
+	}
+	return c.JSON(v)
+}
 func (h *Handler) ApproveClaim(c fiber.Ctx) error {
 	a, b, p, id, e := ids(c, "claimId")
 	if e != nil {

@@ -23,8 +23,13 @@ import (
 
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/jobs"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/config"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/providerconfigs"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/storage"
 )
+
+type TenantResolver interface {
+	Load(context.Context, uuid.UUID) (providerconfigs.Bundle, error)
+}
 
 type SubmitWorker struct {
 	river.WorkerDefaults[jobs.SeedanceSubmitArgs]
@@ -33,6 +38,7 @@ type SubmitWorker struct {
 	Enqueuer *jobs.Enqueuer
 	Store    referenceStore
 	Config   config.Config
+	Resolver TenantResolver
 }
 
 type referenceStore interface {
@@ -50,9 +56,6 @@ type submissionRecord struct {
 }
 
 func (w *SubmitWorker) Work(ctx context.Context, job *river.Job[jobs.SeedanceSubmitArgs]) error {
-	if w.Provider == nil || w.Store == nil {
-		return river.JobCancel(errors.New("Seedance submit worker requires provider and object storage"))
-	}
 	tx, err := w.Pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -76,13 +79,32 @@ func (w *SubmitWorker) Work(ctx context.Context, job *river.Job[jobs.SeedanceSub
 	if err = tx.Commit(ctx); err != nil {
 		return err
 	}
+	provider, store, seedanceConfig := w.Provider, w.Store, w.Config.Seedance
+	if w.Resolver != nil {
+		bundle, resolveErr := w.Resolver.Load(ctx, record.ClientID)
+		if resolveErr != nil {
+			return w.failSubmit(ctx, job.Args.GenerationTaskID, errors.New("client provider configuration is unavailable"))
+		}
+		provider, resolveErr = NewProvider(bundle.DemoMode, bundle.Seedance)
+		if resolveErr != nil {
+			return w.failSubmit(ctx, job.Args.GenerationTaskID, resolveErr)
+		}
+		resolvedStore, storeErr := storage.NewS3Store(ctx, bundle.R2)
+		if storeErr != nil {
+			return w.failSubmit(ctx, job.Args.GenerationTaskID, storeErr)
+		}
+		store, seedanceConfig = resolvedStore, bundle.Seedance
+	}
+	if provider == nil || store == nil {
+		return w.failSubmit(ctx, job.Args.GenerationTaskID, errors.New("Seedance submit worker requires provider and object storage"))
+	}
 
-	references, err := loadReferences(ctx, w.Pool, w.Store, record.SceneVersionID)
+	references, err := loadReferences(ctx, w.Pool, store, record.SceneVersionID)
 	if err != nil {
 		return w.failSubmit(ctx, job.Args.GenerationTaskID, err)
 	}
-	callback := callbackURL(w.Config.Seedance.CallbackURL, w.Config.Seedance.WebhookSecret)
-	providerTask, err := w.Provider.Create(ctx, CreateRequest{Prompt: record.Prompt, References: references, Model: record.Model, Resolution: record.Resolution, AspectRatio: record.Ratio, DurationSeconds: record.Duration, GenerateAudio: record.GenerateAudio, CallbackURL: callback, TimeoutSeconds: max64(1, int64(time.Until(record.TimeoutAt).Seconds()))})
+	callback := callbackURL(seedanceConfig.CallbackURL, seedanceConfig.WebhookSecret, record.ClientID)
+	providerTask, err := provider.Create(ctx, CreateRequest{Prompt: record.Prompt, References: references, Model: record.Model, Resolution: record.Resolution, AspectRatio: record.Ratio, DurationSeconds: record.Duration, GenerateAudio: record.GenerateAudio, CallbackURL: callback, TimeoutSeconds: max64(1, int64(time.Until(record.TimeoutAt).Seconds()))})
 	if err != nil {
 		return w.failSubmit(ctx, job.Args.GenerationTaskID, err)
 	}
@@ -96,7 +118,7 @@ func (w *SubmitWorker) Work(ctx context.Context, job *river.Job[jobs.SeedanceSub
 	if status != "PROVIDER_QUEUED" && status != "PROVIDER_PROCESSING" && status != "SUCCEEDED" {
 		status = "PROVIDER_QUEUED"
 	}
-	result, err := tx.Exec(ctx, `UPDATE scene_generation_tasks SET provider_task_id=$2,status=$3::scene_generation_status,sanitized_response=$4,submitted_at=now(),provider_started_at=CASE WHEN $3::text='PROVIDER_PROCESSING' THEN now() ELSE NULL END,provider_output_url=NULLIF($5,''),usage_tokens=NULLIF($6,0),provider_seed=$7,provider_fps=$8,next_poll_at=now()+$9::interval,version=version+1,updated_at=now() WHERE id=$1 AND status='SUBMITTING'`, job.Args.GenerationTaskID, providerTask.ID, status, safe, providerTask.OutputURL, providerTask.UsageTokens, providerTask.Seed, providerTask.FPS, interval(w.Config.Seedance.PollInterval))
+	result, err := tx.Exec(ctx, `UPDATE scene_generation_tasks SET provider_task_id=$2,status=$3::scene_generation_status,sanitized_response=$4,submitted_at=now(),provider_started_at=CASE WHEN $3::text='PROVIDER_PROCESSING' THEN now() ELSE NULL END,provider_output_url=NULLIF($5,''),usage_tokens=NULLIF($6,0),provider_seed=$7,provider_fps=$8,next_poll_at=now()+$9::interval,version=version+1,updated_at=now() WHERE id=$1 AND status='SUBMITTING'`, job.Args.GenerationTaskID, providerTask.ID, status, safe, providerTask.OutputURL, providerTask.UsageTokens, providerTask.Seed, providerTask.FPS, interval(seedanceConfig.PollInterval))
 	if err != nil {
 		return err
 	}
@@ -131,12 +153,14 @@ type StatusWorker struct {
 	Provider Provider
 	Enqueuer *jobs.Enqueuer
 	Config   config.Config
+	Resolver TenantResolver
 }
 
 func (w *StatusWorker) Work(ctx context.Context, job *river.Job[jobs.SeedanceStatusArgs]) error {
+	var clientID uuid.UUID
 	var providerTaskID, current string
 	var timeoutAt time.Time
-	err := w.Pool.QueryRow(ctx, `SELECT provider_task_id,status::text,timeout_at FROM scene_generation_tasks WHERE id=$1`, job.Args.GenerationTaskID).Scan(&providerTaskID, &current, &timeoutAt)
+	err := w.Pool.QueryRow(ctx, `SELECT client_id,provider_task_id,status::text,timeout_at FROM scene_generation_tasks WHERE id=$1`, job.Args.GenerationTaskID).Scan(&clientID, &providerTaskID, &current, &timeoutAt)
 	if errors.Is(err, pgx.ErrNoRows) || current == "CANCELLED" || current == "FAILED" || current == "REJECTED" || current == "APPROVED" {
 		return river.JobCancel(errors.New("generation polling is complete"))
 	}
@@ -147,7 +171,22 @@ func (w *StatusWorker) Work(ctx context.Context, job *river.Job[jobs.SeedanceSta
 		_, _ = w.Pool.Exec(ctx, `WITH old AS (UPDATE scene_generation_tasks SET status='FAILED',error_category='TIMEOUT',error_code='task_timeout',error_message='Seedance task exceeded its configured deadline',version=version+1,updated_at=now() WHERE id=$1 AND status IN ('PROVIDER_QUEUED','PROVIDER_PROCESSING') RETURNING id,status) INSERT INTO scene_generation_events(generation_task_id,from_status,to_status,source,safe_detail) SELECT id,status,'FAILED','PROVIDER_POLL','Provider task timed out' FROM old`, job.Args.GenerationTaskID)
 		return river.JobCancel(errors.New("Seedance task timed out"))
 	}
-	providerTask, err := w.Provider.Get(ctx, providerTaskID)
+	provider, pollInterval := w.Provider, w.Config.Seedance.PollInterval
+	if w.Resolver != nil {
+		bundle, resolveErr := w.Resolver.Load(ctx, clientID)
+		if resolveErr != nil {
+			return river.JobCancel(errors.New("client provider configuration is unavailable"))
+		}
+		provider, resolveErr = NewProvider(bundle.DemoMode, bundle.Seedance)
+		if resolveErr != nil {
+			return river.JobCancel(resolveErr)
+		}
+		pollInterval = bundle.Seedance.PollInterval
+	}
+	if provider == nil {
+		return river.JobCancel(errors.New("Seedance provider is unavailable"))
+	}
+	providerTask, err := provider.Get(ctx, providerTaskID)
 	if err != nil {
 		providerError := AsProviderError(err)
 		if providerError.Retryable {
@@ -176,7 +215,7 @@ func (w *StatusWorker) Work(ctx context.Context, job *river.Job[jobs.SeedanceSta
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	result, err := tx.Exec(ctx, `UPDATE scene_generation_tasks SET status=$2::scene_generation_status,sanitized_response=$3,provider_output_url=NULLIF($4,''),usage_tokens=NULLIF($5,0),provider_seed=$6,provider_fps=$7,poll_count=poll_count+1,next_poll_at=CASE WHEN $2::text IN ('PROVIDER_QUEUED','PROVIDER_PROCESSING') THEN now()+$8::interval ELSE NULL END,provider_started_at=CASE WHEN $2::text='PROVIDER_PROCESSING' THEN COALESCE(provider_started_at,now()) ELSE provider_started_at END,provider_completed_at=CASE WHEN $2::text='SUCCEEDED' THEN now() ELSE provider_completed_at END,version=version+1,updated_at=now() WHERE id=$1 AND status IN ('PROVIDER_QUEUED','PROVIDER_PROCESSING')`, job.Args.GenerationTaskID, status, providerTask.SafeResponse, providerTask.OutputURL, providerTask.UsageTokens, providerTask.Seed, providerTask.FPS, interval(w.Config.Seedance.PollInterval))
+	result, err := tx.Exec(ctx, `UPDATE scene_generation_tasks SET status=$2::scene_generation_status,sanitized_response=$3,provider_output_url=NULLIF($4,''),usage_tokens=NULLIF($5,0),provider_seed=$6,provider_fps=$7,poll_count=poll_count+1,next_poll_at=CASE WHEN $2::text IN ('PROVIDER_QUEUED','PROVIDER_PROCESSING') THEN now()+$8::interval ELSE NULL END,provider_started_at=CASE WHEN $2::text='PROVIDER_PROCESSING' THEN COALESCE(provider_started_at,now()) ELSE provider_started_at END,provider_completed_at=CASE WHEN $2::text='SUCCEEDED' THEN now() ELSE provider_completed_at END,version=version+1,updated_at=now() WHERE id=$1 AND status IN ('PROVIDER_QUEUED','PROVIDER_PROCESSING')`, job.Args.GenerationTaskID, status, providerTask.SafeResponse, providerTask.OutputURL, providerTask.UsageTokens, providerTask.Seed, providerTask.FPS, interval(pollInterval))
 	if err != nil {
 		return err
 	}
@@ -195,7 +234,7 @@ func (w *StatusWorker) Work(ctx context.Context, job *river.Job[jobs.SeedanceSta
 		return err
 	}
 	if status != "SUCCEEDED" {
-		return river.JobSnooze(w.Config.Seedance.PollInterval)
+		return river.JobSnooze(pollInterval)
 	}
 	return nil
 }
@@ -207,6 +246,7 @@ type DownloadWorker struct {
 	Enqueuer   *jobs.Enqueuer
 	Config     config.Config
 	HTTPClient *http.Client
+	Resolver   TenantResolver
 }
 
 type downloadRecord struct {
@@ -217,9 +257,6 @@ type downloadRecord struct {
 }
 
 func (w *DownloadWorker) Work(ctx context.Context, job *river.Job[jobs.SeedanceDownloadArgs]) error {
-	if w.Store == nil {
-		return errors.New("Seedance output download requires object storage")
-	}
 	var record downloadRecord
 	err := w.Pool.QueryRow(ctx, `UPDATE scene_generation_tasks g SET status='DOWNLOADING',version=g.version+1,updated_at=now() FROM campaigns c WHERE g.id=$1 AND g.status='SUCCEEDED' AND c.id=g.campaign_id RETURNING g.client_id,g.workspace_id,g.campaign_id,g.scene_id,c.product_id,g.created_by,COALESCE(g.provider_output_url,''),g.provider,g.resolution,g.aspect_ratio,g.duration_seconds,g.generate_audio`, job.Args.GenerationTaskID).Scan(&record.ClientID, &record.WorkspaceID, &record.CampaignID, &record.SceneID, &record.ProductID, &record.CreatedBy, &record.URL, &record.Provider, &record.Resolution, &record.Ratio, &record.Duration, &record.GenerateAudio)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -228,10 +265,26 @@ func (w *DownloadWorker) Work(ctx context.Context, job *river.Job[jobs.SeedanceD
 	if err != nil {
 		return err
 	}
-	if err = os.MkdirAll(w.Config.WorkerTempDir, 0o750); err != nil {
+	store, cfg := w.Store, w.Config
+	if w.Resolver != nil {
+		bundle, resolveErr := w.Resolver.Load(ctx, record.ClientID)
+		if resolveErr != nil {
+			return w.failDownload(ctx, job, errors.New("client provider configuration is unavailable"))
+		}
+		resolvedStore, storeErr := storage.NewS3Store(ctx, bundle.R2)
+		if storeErr != nil {
+			return w.failDownload(ctx, job, storeErr)
+		}
+		store = resolvedStore
+		cfg.DemoMode, cfg.OpenAI, cfg.Seedance, cfg.R2 = bundle.DemoMode, bundle.OpenAI, bundle.Seedance, bundle.R2
+	}
+	if store == nil {
+		return w.failDownload(ctx, job, errors.New("Seedance output download requires object storage"))
+	}
+	if err = os.MkdirAll(cfg.WorkerTempDir, 0o750); err != nil {
 		return err
 	}
-	dir, err := os.MkdirTemp(w.Config.WorkerTempDir, "seedance-")
+	dir, err := os.MkdirTemp(cfg.WorkerTempDir, "seedance-")
 	if err != nil {
 		return err
 	}
@@ -259,7 +312,7 @@ func (w *DownloadWorker) Work(ctx context.Context, job *river.Job[jobs.SeedanceD
 	if err != nil {
 		return err
 	}
-	err = w.Store.Put(ctx, objectKey, "video/mp4", size, file, map[string]string{"generation-task-id": job.Args.GenerationTaskID.String(), "sha256": checksum})
+	err = store.Put(ctx, objectKey, "video/mp4", size, file, map[string]string{"generation-task-id": job.Args.GenerationTaskID.String(), "sha256": checksum})
 	closeErr := file.Close()
 	if err != nil {
 		return err
@@ -280,7 +333,7 @@ func (w *DownloadWorker) Work(ctx context.Context, job *river.Job[jobs.SeedanceD
 			_ = thumb.Close()
 			return statErr
 		}
-		putErr := w.Store.Put(ctx, thumbnailKey, "image/jpeg", stat.Size(), thumb, map[string]string{"generation-task-id": job.Args.GenerationTaskID.String()})
+		putErr := store.Put(ctx, thumbnailKey, "image/jpeg", stat.Size(), thumb, map[string]string{"generation-task-id": job.Args.GenerationTaskID.String()})
 		_ = thumb.Close()
 		if putErr != nil {
 			return putErr
@@ -305,10 +358,10 @@ func (w *DownloadWorker) Work(ctx context.Context, job *river.Job[jobs.SeedanceD
 		return err
 	}
 	provider := "openai"
-	if w.Config.DemoMode {
+	if cfg.DemoMode {
 		provider = "demo"
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO scene_transcriptions(generation_task_id,status,provider,model)VALUES($1,'QUEUED',$2,$3) ON CONFLICT(generation_task_id)DO NOTHING`, job.Args.GenerationTaskID, provider, w.Config.OpenAI.TranscriptionModel)
+	_, err = tx.Exec(ctx, `INSERT INTO scene_transcriptions(generation_task_id,status,provider,model)VALUES($1,'QUEUED',$2,$3) ON CONFLICT(generation_task_id)DO NOTHING`, job.Args.GenerationTaskID, provider, cfg.OpenAI.TranscriptionModel)
 	if err != nil {
 		return err
 	}
@@ -519,7 +572,7 @@ func normalizeProviderStatus(status string) string {
 	}
 }
 
-func callbackURL(base, secret string) string {
+func callbackURL(base, secret string, clientID uuid.UUID) string {
 	if strings.TrimSpace(base) == "" || strings.TrimSpace(secret) == "" {
 		return ""
 	}
@@ -529,6 +582,7 @@ func callbackURL(base, secret string) string {
 	}
 	query := parsed.Query()
 	query.Set("token", secret)
+	query.Set("clientId", clientID.String())
 	parsed.RawQuery = query.Encode()
 	return parsed.String()
 }
