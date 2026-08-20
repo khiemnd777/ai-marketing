@@ -1,0 +1,4 @@
+interface:
+  display_name: "Studio Provider Integration"
+  short_description: "Integrate AI, Seedance, storage, or Meta providers"
+  default_prompt: "Use $studio-provider-integration to implement this provider change behind a typed adapter."

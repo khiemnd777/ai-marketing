@@ -1,0 +1,4 @@
+interface:
+  display_name: "Studio Truth and Approval"
+  short_description: "Protect Product Truth, approvals, and paid actions"
+  default_prompt: "Use $studio-truth-approval to review or implement this consequential content workflow."

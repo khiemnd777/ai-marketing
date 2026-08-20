@@ -1,0 +1,4 @@
+interface:
+  display_name: "Studio Video Pipeline"
+  short_description: "Change media, generation, QC, and rendering safely"
+  default_prompt: "Use $studio-video-pipeline to implement and verify this Studio video workflow change."

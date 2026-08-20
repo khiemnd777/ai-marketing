@@ -1,0 +1,4 @@
+interface:
+  display_name: "Studio Database Change"
+  short_description: "Evolve PostgreSQL, Atlas, sqlc, and repositories"
+  default_prompt: "Use $studio-database-change to implement this Studio persistence change safely."

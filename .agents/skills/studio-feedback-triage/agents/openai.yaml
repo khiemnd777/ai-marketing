@@ -1,0 +1,4 @@
+interface:
+  display_name: "Studio Feedback Triage"
+  short_description: "Turn product feedback into a reproduced safe fix"
+  default_prompt: "Use $studio-feedback-triage to investigate and resolve this Studio feedback."

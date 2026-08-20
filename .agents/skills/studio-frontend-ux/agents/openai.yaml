@@ -1,0 +1,4 @@
+interface:
+  display_name: "Studio Frontend UX"
+  short_description: "Build accessible permission-aware Studio interfaces"
+  default_prompt: "Use $studio-frontend-ux to implement and browser-QA this Studio UI change."

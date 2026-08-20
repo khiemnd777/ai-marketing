@@ -1,0 +1,4 @@
+interface:
+  display_name: "Studio Release Operations"
+  short_description: "Verify local lifecycle, CI, and release readiness"
+  default_prompt: "Use $studio-release-operations to validate and prepare this Studio change for release."

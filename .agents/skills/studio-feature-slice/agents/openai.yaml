@@ -1,0 +1,4 @@
+interface:
+  display_name: "Studio Full-Stack Slice"
+  short_description: "Deliver scoped features across FE, API, and contracts"
+  default_prompt: "Use $studio-feature-slice to implement this Studio feature as a verified vertical slice."

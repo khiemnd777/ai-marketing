@@ -31,6 +31,23 @@ Default host ports avoid the commonly occupied `3000`, `8080`, `9001`, and `5432
 
 The production build does not require live provider credentials. Provider routes fail with normalized configuration problems when their adapter is enabled but unconfigured.
 
+## Repository skills
+
+Codex automatically discovers the versioned skills in `.agents/skills`. They can also be invoked explicitly with `$skill-name`:
+
+| Skill | Use it for |
+| --- | --- |
+| `studio-feature-slice` | User-visible changes spanning OpenAPI, Go, generated clients, and Next.js. |
+| `studio-feedback-triage` | Reproducing product feedback and locating the owning layer before a fix. |
+| `studio-database-change` | PostgreSQL 18, Atlas, sqlc, transactions, scoping, and River persistence. |
+| `studio-frontend-ux` | Accessible, responsive, permission-aware UI and browser QA. |
+| `studio-provider-integration` | OpenAI, Seedance, transcription, storage, or Meta provider contracts and adapters. |
+| `studio-video-pipeline` | Media upload, generation, QC, composition, and deterministic rendering. |
+| `studio-truth-approval` | Product Truth, approval invalidation, publishing, paid actions, and recommendations. |
+| `studio-release-operations` | Local Docker lifecycle, CI gates, release evidence, and live-readiness handoff. |
+
+Skills are intentionally focused and may be combined for cross-cutting work. See the [OpenAI skill documentation](https://developers.openai.com/codex/skills) for discovery and invocation behavior.
+
 ## Operations and recovery
 
 - [Coolify deployment](docs/deployment/coolify.md)
