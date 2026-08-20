@@ -94,6 +94,15 @@ func TestBytePlusProviderClassifiesTimeoutAndRateLimit(t *testing.T) {
 		{"rate-limit", func(_ *http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":{"code":"RateLimitExceeded"}}`))}, nil
 		}, CategoryRateLimit, true},
+		{"authentication", func(_ *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusUnauthorized, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":{"code":"InvalidAuthentication","message":"raw credential detail"}}`))}, nil
+		}, CategoryAuthentication, false},
+		{"moderation", func(_ *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusBadRequest, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":{"code":"SensitiveContentDetected","message":"raw moderation detail"}}`))}, nil
+		}, CategoryModeration, false},
+		{"outage", func(_ *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusServiceUnavailable, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"error":{"code":"ServiceUnavailable","message":"raw outage detail"}}`))}, nil
+		}, CategoryOutage, true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

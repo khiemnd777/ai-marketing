@@ -13,6 +13,499 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type ApprovalEventType string
+
+const (
+	ApprovalEventTypeREQUESTED   ApprovalEventType = "REQUESTED"
+	ApprovalEventTypeAPPROVED    ApprovalEventType = "APPROVED"
+	ApprovalEventTypeREJECTED    ApprovalEventType = "REJECTED"
+	ApprovalEventTypeINVALIDATED ApprovalEventType = "INVALIDATED"
+	ApprovalEventTypeREVOKED     ApprovalEventType = "REVOKED"
+)
+
+func (e *ApprovalEventType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ApprovalEventType(s)
+	case string:
+		*e = ApprovalEventType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ApprovalEventType: %T", src)
+	}
+	return nil
+}
+
+type NullApprovalEventType struct {
+	ApprovalEventType ApprovalEventType `json:"approval_event_type"`
+	Valid             bool              `json:"valid"` // Valid is true if ApprovalEventType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullApprovalEventType) Scan(value interface{}) error {
+	if value == nil {
+		ns.ApprovalEventType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ApprovalEventType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullApprovalEventType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ApprovalEventType), nil
+}
+
+type CampaignObjective string
+
+const (
+	CampaignObjectivePRODUCTINTRODUCTION CampaignObjective = "PRODUCT_INTRODUCTION"
+	CampaignObjectiveAWARENESS           CampaignObjective = "AWARENESS"
+	CampaignObjectiveENGAGEMENT          CampaignObjective = "ENGAGEMENT"
+	CampaignObjectiveWEBSITETRAFFIC      CampaignObjective = "WEBSITE_TRAFFIC"
+	CampaignObjectiveLEADGENERATION      CampaignObjective = "LEAD_GENERATION"
+	CampaignObjectiveSALES               CampaignObjective = "SALES"
+	CampaignObjectivePROMOTION           CampaignObjective = "PROMOTION"
+)
+
+func (e *CampaignObjective) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CampaignObjective(s)
+	case string:
+		*e = CampaignObjective(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CampaignObjective: %T", src)
+	}
+	return nil
+}
+
+type NullCampaignObjective struct {
+	CampaignObjective CampaignObjective `json:"campaign_objective"`
+	Valid             bool              `json:"valid"` // Valid is true if CampaignObjective is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCampaignObjective) Scan(value interface{}) error {
+	if value == nil {
+		ns.CampaignObjective, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CampaignObjective.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCampaignObjective) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CampaignObjective), nil
+}
+
+type CampaignStatus string
+
+const (
+	CampaignStatusDRAFT            CampaignStatus = "DRAFT"
+	CampaignStatusSCRIPTREADY      CampaignStatus = "SCRIPT_READY"
+	CampaignStatusSCRIPTAPPROVED   CampaignStatus = "SCRIPT_APPROVED"
+	CampaignStatusSCENESGENERATING CampaignStatus = "SCENES_GENERATING"
+	CampaignStatusSCENEREVIEW      CampaignStatus = "SCENE_REVIEW"
+	CampaignStatusFINALRENDERING   CampaignStatus = "FINAL_RENDERING"
+	CampaignStatusFINALREVIEW      CampaignStatus = "FINAL_REVIEW"
+	CampaignStatusAPPROVED         CampaignStatus = "APPROVED"
+	CampaignStatusREADYTOPUBLISH   CampaignStatus = "READY_TO_PUBLISH"
+	CampaignStatusARCHIVED         CampaignStatus = "ARCHIVED"
+)
+
+func (e *CampaignStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CampaignStatus(s)
+	case string:
+		*e = CampaignStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CampaignStatus: %T", src)
+	}
+	return nil
+}
+
+type NullCampaignStatus struct {
+	CampaignStatus CampaignStatus `json:"campaign_status"`
+	Valid          bool           `json:"valid"` // Valid is true if CampaignStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCampaignStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.CampaignStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CampaignStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCampaignStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CampaignStatus), nil
+}
+
+type CharacterType string
+
+const (
+	CharacterTypePRESET               CharacterType = "PRESET"
+	CharacterTypeTRUSTEDGENERATED     CharacterType = "TRUSTED_GENERATED"
+	CharacterTypeAUTHORIZEDREALPERSON CharacterType = "AUTHORIZED_REAL_PERSON"
+)
+
+func (e *CharacterType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = CharacterType(s)
+	case string:
+		*e = CharacterType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for CharacterType: %T", src)
+	}
+	return nil
+}
+
+type NullCharacterType struct {
+	CharacterType CharacterType `json:"character_type"`
+	Valid         bool          `json:"valid"` // Valid is true if CharacterType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullCharacterType) Scan(value interface{}) error {
+	if value == nil {
+		ns.CharacterType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.CharacterType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullCharacterType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.CharacterType), nil
+}
+
+type ClaimKind string
+
+const (
+	ClaimKindAPPROVED   ClaimKind = "APPROVED"
+	ClaimKindPROHIBITED ClaimKind = "PROHIBITED"
+)
+
+func (e *ClaimKind) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ClaimKind(s)
+	case string:
+		*e = ClaimKind(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ClaimKind: %T", src)
+	}
+	return nil
+}
+
+type NullClaimKind struct {
+	ClaimKind ClaimKind `json:"claim_kind"`
+	Valid     bool      `json:"valid"` // Valid is true if ClaimKind is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullClaimKind) Scan(value interface{}) error {
+	if value == nil {
+		ns.ClaimKind, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ClaimKind.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullClaimKind) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ClaimKind), nil
+}
+
+type ConceptStatus string
+
+const (
+	ConceptStatusDRAFT    ConceptStatus = "DRAFT"
+	ConceptStatusAPPROVED ConceptStatus = "APPROVED"
+	ConceptStatusREJECTED ConceptStatus = "REJECTED"
+	ConceptStatusLOCKED   ConceptStatus = "LOCKED"
+)
+
+func (e *ConceptStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ConceptStatus(s)
+	case string:
+		*e = ConceptStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ConceptStatus: %T", src)
+	}
+	return nil
+}
+
+type NullConceptStatus struct {
+	ConceptStatus ConceptStatus `json:"concept_status"`
+	Valid         bool          `json:"valid"` // Valid is true if ConceptStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullConceptStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ConceptStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ConceptStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullConceptStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ConceptStatus), nil
+}
+
+type ConsentStatus string
+
+const (
+	ConsentStatusNOTREQUIRED ConsentStatus = "NOT_REQUIRED"
+	ConsentStatusPENDING     ConsentStatus = "PENDING"
+	ConsentStatusAPPROVED    ConsentStatus = "APPROVED"
+	ConsentStatusREVOKED     ConsentStatus = "REVOKED"
+	ConsentStatusEXPIRED     ConsentStatus = "EXPIRED"
+)
+
+func (e *ConsentStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ConsentStatus(s)
+	case string:
+		*e = ConsentStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ConsentStatus: %T", src)
+	}
+	return nil
+}
+
+type NullConsentStatus struct {
+	ConsentStatus ConsentStatus `json:"consent_status"`
+	Valid         bool          `json:"valid"` // Valid is true if ConsentStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullConsentStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ConsentStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ConsentStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullConsentStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ConsentStatus), nil
+}
+
+type ContentStatus string
+
+const (
+	ContentStatusDRAFT    ContentStatus = "DRAFT"
+	ContentStatusAPPROVED ContentStatus = "APPROVED"
+	ContentStatusREJECTED ContentStatus = "REJECTED"
+	ContentStatusARCHIVED ContentStatus = "ARCHIVED"
+)
+
+func (e *ContentStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ContentStatus(s)
+	case string:
+		*e = ContentStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ContentStatus: %T", src)
+	}
+	return nil
+}
+
+type NullContentStatus struct {
+	ContentStatus ContentStatus `json:"content_status"`
+	Valid         bool          `json:"valid"` // Valid is true if ContentStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullContentStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ContentStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ContentStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullContentStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ContentStatus), nil
+}
+
+type FactStatus string
+
+const (
+	FactStatusDRAFT    FactStatus = "DRAFT"
+	FactStatusAPPROVED FactStatus = "APPROVED"
+	FactStatusREJECTED FactStatus = "REJECTED"
+)
+
+func (e *FactStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = FactStatus(s)
+	case string:
+		*e = FactStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for FactStatus: %T", src)
+	}
+	return nil
+}
+
+type NullFactStatus struct {
+	FactStatus FactStatus `json:"fact_status"`
+	Valid      bool       `json:"valid"` // Valid is true if FactStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullFactStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.FactStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.FactStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullFactStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.FactStatus), nil
+}
+
+type GenerationJobStatus string
+
+const (
+	GenerationJobStatusQUEUED    GenerationJobStatus = "QUEUED"
+	GenerationJobStatusRUNNING   GenerationJobStatus = "RUNNING"
+	GenerationJobStatusSUCCEEDED GenerationJobStatus = "SUCCEEDED"
+	GenerationJobStatusFAILED    GenerationJobStatus = "FAILED"
+	GenerationJobStatusCANCELLED GenerationJobStatus = "CANCELLED"
+)
+
+func (e *GenerationJobStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = GenerationJobStatus(s)
+	case string:
+		*e = GenerationJobStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for GenerationJobStatus: %T", src)
+	}
+	return nil
+}
+
+type NullGenerationJobStatus struct {
+	GenerationJobStatus GenerationJobStatus `json:"generation_job_status"`
+	Valid               bool                `json:"valid"` // Valid is true if GenerationJobStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullGenerationJobStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.GenerationJobStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.GenerationJobStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullGenerationJobStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.GenerationJobStatus), nil
+}
+
+type GenerationOperation string
+
+const (
+	GenerationOperationCONCEPTS GenerationOperation = "CONCEPTS"
+	GenerationOperationCONTENT  GenerationOperation = "CONTENT"
+	GenerationOperationSCRIPT   GenerationOperation = "SCRIPT"
+	GenerationOperationSCENES   GenerationOperation = "SCENES"
+	GenerationOperationAUDIT    GenerationOperation = "AUDIT"
+)
+
+func (e *GenerationOperation) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = GenerationOperation(s)
+	case string:
+		*e = GenerationOperation(s)
+	default:
+		return fmt.Errorf("unsupported scan type for GenerationOperation: %T", src)
+	}
+	return nil
+}
+
+type NullGenerationOperation struct {
+	GenerationOperation GenerationOperation `json:"generation_operation"`
+	Valid               bool                `json:"valid"` // Valid is true if GenerationOperation is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullGenerationOperation) Scan(value interface{}) error {
+	if value == nil {
+		ns.GenerationOperation, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.GenerationOperation.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullGenerationOperation) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.GenerationOperation), nil
+}
+
 type IdempotencyStatus string
 
 const (
@@ -141,6 +634,1050 @@ func (ns NullInternalUserStatus) Value() (driver.Value, error) {
 	return string(ns.InternalUserStatus), nil
 }
 
+type LifecycleStatus string
+
+const (
+	LifecycleStatusACTIVE   LifecycleStatus = "ACTIVE"
+	LifecycleStatusARCHIVED LifecycleStatus = "ARCHIVED"
+)
+
+func (e *LifecycleStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = LifecycleStatus(s)
+	case string:
+		*e = LifecycleStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for LifecycleStatus: %T", src)
+	}
+	return nil
+}
+
+type NullLifecycleStatus struct {
+	LifecycleStatus LifecycleStatus `json:"lifecycle_status"`
+	Valid           bool            `json:"valid"` // Valid is true if LifecycleStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullLifecycleStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.LifecycleStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.LifecycleStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullLifecycleStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.LifecycleStatus), nil
+}
+
+type MediaAssetType string
+
+const (
+	MediaAssetTypeIMAGE           MediaAssetType = "IMAGE"
+	MediaAssetTypeVIDEO           MediaAssetType = "VIDEO"
+	MediaAssetTypeAUDIO           MediaAssetType = "AUDIO"
+	MediaAssetTypeLOGO            MediaAssetType = "LOGO"
+	MediaAssetTypeBROCHURE        MediaAssetType = "BROCHURE"
+	MediaAssetTypeSCREENSHOT      MediaAssetType = "SCREENSHOT"
+	MediaAssetTypeSCREENRECORDING MediaAssetType = "SCREEN_RECORDING"
+)
+
+func (e *MediaAssetType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = MediaAssetType(s)
+	case string:
+		*e = MediaAssetType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for MediaAssetType: %T", src)
+	}
+	return nil
+}
+
+type NullMediaAssetType struct {
+	MediaAssetType MediaAssetType `json:"media_asset_type"`
+	Valid          bool           `json:"valid"` // Valid is true if MediaAssetType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullMediaAssetType) Scan(value interface{}) error {
+	if value == nil {
+		ns.MediaAssetType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.MediaAssetType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullMediaAssetType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.MediaAssetType), nil
+}
+
+type MetaActionStatus string
+
+const (
+	MetaActionStatusPENDINGAPPROVAL MetaActionStatus = "PENDING_APPROVAL"
+	MetaActionStatusAPPROVED        MetaActionStatus = "APPROVED"
+	MetaActionStatusQUEUED          MetaActionStatus = "QUEUED"
+	MetaActionStatusPROCESSING      MetaActionStatus = "PROCESSING"
+	MetaActionStatusSUCCEEDED       MetaActionStatus = "SUCCEEDED"
+	MetaActionStatusREJECTED        MetaActionStatus = "REJECTED"
+	MetaActionStatusFAILED          MetaActionStatus = "FAILED"
+)
+
+func (e *MetaActionStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = MetaActionStatus(s)
+	case string:
+		*e = MetaActionStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for MetaActionStatus: %T", src)
+	}
+	return nil
+}
+
+type NullMetaActionStatus struct {
+	MetaActionStatus MetaActionStatus `json:"meta_action_status"`
+	Valid            bool             `json:"valid"` // Valid is true if MetaActionStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullMetaActionStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.MetaActionStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.MetaActionStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullMetaActionStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.MetaActionStatus), nil
+}
+
+type MetaActionType string
+
+const (
+	MetaActionTypeCREATEPAUSED MetaActionType = "CREATE_PAUSED"
+	MetaActionTypeACTIVATE     MetaActionType = "ACTIVATE"
+	MetaActionTypeRESUME       MetaActionType = "RESUME"
+	MetaActionTypePAUSE        MetaActionType = "PAUSE"
+	MetaActionTypeARCHIVE      MetaActionType = "ARCHIVE"
+	MetaActionTypeBUDGETCHANGE MetaActionType = "BUDGET_CHANGE"
+)
+
+func (e *MetaActionType) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = MetaActionType(s)
+	case string:
+		*e = MetaActionType(s)
+	default:
+		return fmt.Errorf("unsupported scan type for MetaActionType: %T", src)
+	}
+	return nil
+}
+
+type NullMetaActionType struct {
+	MetaActionType MetaActionType `json:"meta_action_type"`
+	Valid          bool           `json:"valid"` // Valid is true if MetaActionType is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullMetaActionType) Scan(value interface{}) error {
+	if value == nil {
+		ns.MetaActionType, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.MetaActionType.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullMetaActionType) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.MetaActionType), nil
+}
+
+type MetaAdCampaignStatus string
+
+const (
+	MetaAdCampaignStatusDRAFT            MetaAdCampaignStatus = "DRAFT"
+	MetaAdCampaignStatusAPPROVALREQUIRED MetaAdCampaignStatus = "APPROVAL_REQUIRED"
+	MetaAdCampaignStatusAPPROVED         MetaAdCampaignStatus = "APPROVED"
+	MetaAdCampaignStatusCREATING         MetaAdCampaignStatus = "CREATING"
+	MetaAdCampaignStatusPAUSED           MetaAdCampaignStatus = "PAUSED"
+	MetaAdCampaignStatusACTIVE           MetaAdCampaignStatus = "ACTIVE"
+	MetaAdCampaignStatusARCHIVED         MetaAdCampaignStatus = "ARCHIVED"
+	MetaAdCampaignStatusFAILED           MetaAdCampaignStatus = "FAILED"
+)
+
+func (e *MetaAdCampaignStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = MetaAdCampaignStatus(s)
+	case string:
+		*e = MetaAdCampaignStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for MetaAdCampaignStatus: %T", src)
+	}
+	return nil
+}
+
+type NullMetaAdCampaignStatus struct {
+	MetaAdCampaignStatus MetaAdCampaignStatus `json:"meta_ad_campaign_status"`
+	Valid                bool                 `json:"valid"` // Valid is true if MetaAdCampaignStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullMetaAdCampaignStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.MetaAdCampaignStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.MetaAdCampaignStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullMetaAdCampaignStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.MetaAdCampaignStatus), nil
+}
+
+type MetaConnectionStatus string
+
+const (
+	MetaConnectionStatusCONNECTED    MetaConnectionStatus = "CONNECTED"
+	MetaConnectionStatusEXPIRING     MetaConnectionStatus = "EXPIRING"
+	MetaConnectionStatusEXPIRED      MetaConnectionStatus = "EXPIRED"
+	MetaConnectionStatusERROR        MetaConnectionStatus = "ERROR"
+	MetaConnectionStatusDISCONNECTED MetaConnectionStatus = "DISCONNECTED"
+)
+
+func (e *MetaConnectionStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = MetaConnectionStatus(s)
+	case string:
+		*e = MetaConnectionStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for MetaConnectionStatus: %T", src)
+	}
+	return nil
+}
+
+type NullMetaConnectionStatus struct {
+	MetaConnectionStatus MetaConnectionStatus `json:"meta_connection_status"`
+	Valid                bool                 `json:"valid"` // Valid is true if MetaConnectionStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullMetaConnectionStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.MetaConnectionStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.MetaConnectionStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullMetaConnectionStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.MetaConnectionStatus), nil
+}
+
+type NotificationSeverity string
+
+const (
+	NotificationSeverityINFO     NotificationSeverity = "INFO"
+	NotificationSeverityWARNING  NotificationSeverity = "WARNING"
+	NotificationSeverityCRITICAL NotificationSeverity = "CRITICAL"
+)
+
+func (e *NotificationSeverity) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = NotificationSeverity(s)
+	case string:
+		*e = NotificationSeverity(s)
+	default:
+		return fmt.Errorf("unsupported scan type for NotificationSeverity: %T", src)
+	}
+	return nil
+}
+
+type NullNotificationSeverity struct {
+	NotificationSeverity NotificationSeverity `json:"notification_severity"`
+	Valid                bool                 `json:"valid"` // Valid is true if NotificationSeverity is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullNotificationSeverity) Scan(value interface{}) error {
+	if value == nil {
+		ns.NotificationSeverity, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.NotificationSeverity.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullNotificationSeverity) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.NotificationSeverity), nil
+}
+
+type PlanningContentStatus string
+
+const (
+	PlanningContentStatusDRAFT    PlanningContentStatus = "DRAFT"
+	PlanningContentStatusAPPROVED PlanningContentStatus = "APPROVED"
+	PlanningContentStatusREJECTED PlanningContentStatus = "REJECTED"
+)
+
+func (e *PlanningContentStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = PlanningContentStatus(s)
+	case string:
+		*e = PlanningContentStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for PlanningContentStatus: %T", src)
+	}
+	return nil
+}
+
+type NullPlanningContentStatus struct {
+	PlanningContentStatus PlanningContentStatus `json:"planning_content_status"`
+	Valid                 bool                  `json:"valid"` // Valid is true if PlanningContentStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullPlanningContentStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.PlanningContentStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.PlanningContentStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullPlanningContentStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.PlanningContentStatus), nil
+}
+
+type ProviderRequestStatus string
+
+const (
+	ProviderRequestStatusPENDING   ProviderRequestStatus = "PENDING"
+	ProviderRequestStatusSUCCEEDED ProviderRequestStatus = "SUCCEEDED"
+	ProviderRequestStatusFAILED    ProviderRequestStatus = "FAILED"
+)
+
+func (e *ProviderRequestStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = ProviderRequestStatus(s)
+	case string:
+		*e = ProviderRequestStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for ProviderRequestStatus: %T", src)
+	}
+	return nil
+}
+
+type NullProviderRequestStatus struct {
+	ProviderRequestStatus ProviderRequestStatus `json:"provider_request_status"`
+	Valid                 bool                  `json:"valid"` // Valid is true if ProviderRequestStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullProviderRequestStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.ProviderRequestStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.ProviderRequestStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullProviderRequestStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.ProviderRequestStatus), nil
+}
+
+type QualityCheckStatus string
+
+const (
+	QualityCheckStatusQUEUED         QualityCheckStatus = "QUEUED"
+	QualityCheckStatusPROCESSING     QualityCheckStatus = "PROCESSING"
+	QualityCheckStatusREVIEWREQUIRED QualityCheckStatus = "REVIEW_REQUIRED"
+	QualityCheckStatusPASSED         QualityCheckStatus = "PASSED"
+	QualityCheckStatusFAILED         QualityCheckStatus = "FAILED"
+)
+
+func (e *QualityCheckStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = QualityCheckStatus(s)
+	case string:
+		*e = QualityCheckStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for QualityCheckStatus: %T", src)
+	}
+	return nil
+}
+
+type NullQualityCheckStatus struct {
+	QualityCheckStatus QualityCheckStatus `json:"quality_check_status"`
+	Valid              bool               `json:"valid"` // Valid is true if QualityCheckStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullQualityCheckStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.QualityCheckStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.QualityCheckStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullQualityCheckStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.QualityCheckStatus), nil
+}
+
+type RecommendationStatus string
+
+const (
+	RecommendationStatusDRAFT     RecommendationStatus = "DRAFT"
+	RecommendationStatusAPPROVED  RecommendationStatus = "APPROVED"
+	RecommendationStatusREJECTED  RecommendationStatus = "REJECTED"
+	RecommendationStatusAPPLIED   RecommendationStatus = "APPLIED"
+	RecommendationStatusDISMISSED RecommendationStatus = "DISMISSED"
+)
+
+func (e *RecommendationStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RecommendationStatus(s)
+	case string:
+		*e = RecommendationStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RecommendationStatus: %T", src)
+	}
+	return nil
+}
+
+type NullRecommendationStatus struct {
+	RecommendationStatus RecommendationStatus `json:"recommendation_status"`
+	Valid                bool                 `json:"valid"` // Valid is true if RecommendationStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRecommendationStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.RecommendationStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RecommendationStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRecommendationStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RecommendationStatus), nil
+}
+
+type RenderJobStatus string
+
+const (
+	RenderJobStatusQUEUED           RenderJobStatus = "QUEUED"
+	RenderJobStatusBUILDINGMANIFEST RenderJobStatus = "BUILDING_MANIFEST"
+	RenderJobStatusRENDERING        RenderJobStatus = "RENDERING"
+	RenderJobStatusVALIDATING       RenderJobStatus = "VALIDATING"
+	RenderJobStatusUPLOADING        RenderJobStatus = "UPLOADING"
+	RenderJobStatusREVIEWREQUIRED   RenderJobStatus = "REVIEW_REQUIRED"
+	RenderJobStatusAPPROVED         RenderJobStatus = "APPROVED"
+	RenderJobStatusREJECTED         RenderJobStatus = "REJECTED"
+	RenderJobStatusFAILED           RenderJobStatus = "FAILED"
+	RenderJobStatusCANCELLED        RenderJobStatus = "CANCELLED"
+)
+
+func (e *RenderJobStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = RenderJobStatus(s)
+	case string:
+		*e = RenderJobStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for RenderJobStatus: %T", src)
+	}
+	return nil
+}
+
+type NullRenderJobStatus struct {
+	RenderJobStatus RenderJobStatus `json:"render_job_status"`
+	Valid           bool            `json:"valid"` // Valid is true if RenderJobStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullRenderJobStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.RenderJobStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.RenderJobStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullRenderJobStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.RenderJobStatus), nil
+}
+
+type SceneGenerationStatus string
+
+const (
+	SceneGenerationStatusDRAFT              SceneGenerationStatus = "DRAFT"
+	SceneGenerationStatusREADY              SceneGenerationStatus = "READY"
+	SceneGenerationStatusQUEUED             SceneGenerationStatus = "QUEUED"
+	SceneGenerationStatusSUBMITTING         SceneGenerationStatus = "SUBMITTING"
+	SceneGenerationStatusPROVIDERQUEUED     SceneGenerationStatus = "PROVIDER_QUEUED"
+	SceneGenerationStatusPROVIDERPROCESSING SceneGenerationStatus = "PROVIDER_PROCESSING"
+	SceneGenerationStatusSUCCEEDED          SceneGenerationStatus = "SUCCEEDED"
+	SceneGenerationStatusDOWNLOADING        SceneGenerationStatus = "DOWNLOADING"
+	SceneGenerationStatusVALIDATING         SceneGenerationStatus = "VALIDATING"
+	SceneGenerationStatusREVIEWREQUIRED     SceneGenerationStatus = "REVIEW_REQUIRED"
+	SceneGenerationStatusAPPROVED           SceneGenerationStatus = "APPROVED"
+	SceneGenerationStatusREJECTED           SceneGenerationStatus = "REJECTED"
+	SceneGenerationStatusFAILED             SceneGenerationStatus = "FAILED"
+	SceneGenerationStatusCANCELLED          SceneGenerationStatus = "CANCELLED"
+)
+
+func (e *SceneGenerationStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = SceneGenerationStatus(s)
+	case string:
+		*e = SceneGenerationStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for SceneGenerationStatus: %T", src)
+	}
+	return nil
+}
+
+type NullSceneGenerationStatus struct {
+	SceneGenerationStatus SceneGenerationStatus `json:"scene_generation_status"`
+	Valid                 bool                  `json:"valid"` // Valid is true if SceneGenerationStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSceneGenerationStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.SceneGenerationStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.SceneGenerationStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSceneGenerationStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.SceneGenerationStatus), nil
+}
+
+type SocialPlatform string
+
+const (
+	SocialPlatformFACEBOOK  SocialPlatform = "FACEBOOK"
+	SocialPlatformINSTAGRAM SocialPlatform = "INSTAGRAM"
+)
+
+func (e *SocialPlatform) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = SocialPlatform(s)
+	case string:
+		*e = SocialPlatform(s)
+	default:
+		return fmt.Errorf("unsupported scan type for SocialPlatform: %T", src)
+	}
+	return nil
+}
+
+type NullSocialPlatform struct {
+	SocialPlatform SocialPlatform `json:"social_platform"`
+	Valid          bool           `json:"valid"` // Valid is true if SocialPlatform is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSocialPlatform) Scan(value interface{}) error {
+	if value == nil {
+		ns.SocialPlatform, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.SocialPlatform.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSocialPlatform) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.SocialPlatform), nil
+}
+
+type SocialPostStatus string
+
+const (
+	SocialPostStatusDRAFT            SocialPostStatus = "DRAFT"
+	SocialPostStatusAPPROVALREQUIRED SocialPostStatus = "APPROVAL_REQUIRED"
+	SocialPostStatusAPPROVED         SocialPostStatus = "APPROVED"
+	SocialPostStatusSCHEDULED        SocialPostStatus = "SCHEDULED"
+	SocialPostStatusPUBLISHING       SocialPostStatus = "PUBLISHING"
+	SocialPostStatusPUBLISHED        SocialPostStatus = "PUBLISHED"
+	SocialPostStatusFAILED           SocialPostStatus = "FAILED"
+	SocialPostStatusPERMANENTFAILURE SocialPostStatus = "PERMANENT_FAILURE"
+	SocialPostStatusCANCELLED        SocialPostStatus = "CANCELLED"
+)
+
+func (e *SocialPostStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = SocialPostStatus(s)
+	case string:
+		*e = SocialPostStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for SocialPostStatus: %T", src)
+	}
+	return nil
+}
+
+type NullSocialPostStatus struct {
+	SocialPostStatus SocialPostStatus `json:"social_post_status"`
+	Valid            bool             `json:"valid"` // Valid is true if SocialPostStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSocialPostStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.SocialPostStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.SocialPostStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSocialPostStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.SocialPostStatus), nil
+}
+
+type SubtitleFormat string
+
+const (
+	SubtitleFormatSRT SubtitleFormat = "SRT"
+	SubtitleFormatVTT SubtitleFormat = "VTT"
+)
+
+func (e *SubtitleFormat) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = SubtitleFormat(s)
+	case string:
+		*e = SubtitleFormat(s)
+	default:
+		return fmt.Errorf("unsupported scan type for SubtitleFormat: %T", src)
+	}
+	return nil
+}
+
+type NullSubtitleFormat struct {
+	SubtitleFormat SubtitleFormat `json:"subtitle_format"`
+	Valid          bool           `json:"valid"` // Valid is true if SubtitleFormat is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullSubtitleFormat) Scan(value interface{}) error {
+	if value == nil {
+		ns.SubtitleFormat, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.SubtitleFormat.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullSubtitleFormat) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.SubtitleFormat), nil
+}
+
+type TranscriptionStatus string
+
+const (
+	TranscriptionStatusQUEUED      TranscriptionStatus = "QUEUED"
+	TranscriptionStatusPROCESSING  TranscriptionStatus = "PROCESSING"
+	TranscriptionStatusSUCCEEDED   TranscriptionStatus = "SUCCEEDED"
+	TranscriptionStatusFAILED      TranscriptionStatus = "FAILED"
+	TranscriptionStatusNOTREQUIRED TranscriptionStatus = "NOT_REQUIRED"
+)
+
+func (e *TranscriptionStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = TranscriptionStatus(s)
+	case string:
+		*e = TranscriptionStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for TranscriptionStatus: %T", src)
+	}
+	return nil
+}
+
+type NullTranscriptionStatus struct {
+	TranscriptionStatus TranscriptionStatus `json:"transcription_status"`
+	Valid               bool                `json:"valid"` // Valid is true if TranscriptionStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullTranscriptionStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.TranscriptionStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.TranscriptionStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullTranscriptionStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.TranscriptionStatus), nil
+}
+
+type UploadStatus string
+
+const (
+	UploadStatusPENDING   UploadStatus = "PENDING"
+	UploadStatusUPLOADING UploadStatus = "UPLOADING"
+	UploadStatusUPLOADED  UploadStatus = "UPLOADED"
+	UploadStatusVERIFIED  UploadStatus = "VERIFIED"
+	UploadStatusFAILED    UploadStatus = "FAILED"
+	UploadStatusEXPIRED   UploadStatus = "EXPIRED"
+)
+
+func (e *UploadStatus) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = UploadStatus(s)
+	case string:
+		*e = UploadStatus(s)
+	default:
+		return fmt.Errorf("unsupported scan type for UploadStatus: %T", src)
+	}
+	return nil
+}
+
+type NullUploadStatus struct {
+	UploadStatus UploadStatus `json:"upload_status"`
+	Valid        bool         `json:"valid"` // Valid is true if UploadStatus is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullUploadStatus) Scan(value interface{}) error {
+	if value == nil {
+		ns.UploadStatus, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.UploadStatus.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullUploadStatus) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.UploadStatus), nil
+}
+
+type UsageOutcome string
+
+const (
+	UsageOutcomeSUCCESS UsageOutcome = "SUCCESS"
+	UsageOutcomeFAILURE UsageOutcome = "FAILURE"
+)
+
+func (e *UsageOutcome) Scan(src interface{}) error {
+	switch s := src.(type) {
+	case []byte:
+		*e = UsageOutcome(s)
+	case string:
+		*e = UsageOutcome(s)
+	default:
+		return fmt.Errorf("unsupported scan type for UsageOutcome: %T", src)
+	}
+	return nil
+}
+
+type NullUsageOutcome struct {
+	UsageOutcome UsageOutcome `json:"usage_outcome"`
+	Valid        bool         `json:"valid"` // Valid is true if UsageOutcome is not NULL
+}
+
+// Scan implements the Scanner interface.
+func (ns *NullUsageOutcome) Scan(value interface{}) error {
+	if value == nil {
+		ns.UsageOutcome, ns.Valid = "", false
+		return nil
+	}
+	ns.Valid = true
+	return ns.UsageOutcome.Scan(value)
+}
+
+// Value implements the driver Valuer interface.
+func (ns NullUsageOutcome) Value() (driver.Value, error) {
+	if !ns.Valid {
+		return nil, nil
+	}
+	return string(ns.UsageOutcome), nil
+}
+
+type Ad struct {
+	ID           uuid.UUID          `json:"id"`
+	AdCampaignID uuid.UUID          `json:"ad_campaign_id"`
+	AdSetID      uuid.UUID          `json:"ad_set_id"`
+	AdCreativeID uuid.UUID          `json:"ad_creative_id"`
+	Name         string             `json:"name"`
+	ProviderAdID *string            `json:"provider_ad_id"`
+	Status       string             `json:"status"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt    pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AdCampaign struct {
+	ID                    uuid.UUID            `json:"id"`
+	ClientID              uuid.UUID            `json:"client_id"`
+	WorkspaceID           uuid.UUID            `json:"workspace_id"`
+	CampaignID            uuid.UUID            `json:"campaign_id"`
+	MetaAdAccountID       uuid.UUID            `json:"meta_ad_account_id"`
+	SocialAccountID       uuid.UUID            `json:"social_account_id"`
+	MetaPixelID           uuid.NullUUID        `json:"meta_pixel_id"`
+	Name                  string               `json:"name"`
+	Objective             string               `json:"objective"`
+	BuyingType            string               `json:"buying_type"`
+	DailyBudgetMinor      *int64               `json:"daily_budget_minor"`
+	LifetimeBudgetMinor   *int64               `json:"lifetime_budget_minor"`
+	CampaignSpendCapMinor int64                `json:"campaign_spend_cap_minor"`
+	Currency              string               `json:"currency"`
+	StartsAt              pgtype.Timestamptz   `json:"starts_at"`
+	EndsAt                pgtype.Timestamptz   `json:"ends_at"`
+	Audience              []byte               `json:"audience"`
+	Placements            []string             `json:"placements"`
+	DestinationUrl        string               `json:"destination_url"`
+	UtmParameters         []byte               `json:"utm_parameters"`
+	ConversionEvent       *string              `json:"conversion_event"`
+	ProviderCampaignID    *string              `json:"provider_campaign_id"`
+	Status                MetaAdCampaignStatus `json:"status"`
+	CampaignHash          string               `json:"campaign_hash"`
+	LastErrorCode         *string              `json:"last_error_code"`
+	LastErrorMessage      *string              `json:"last_error_message"`
+	Version               int64                `json:"version"`
+	CreatedBy             uuid.UUID            `json:"created_by"`
+	UpdatedBy             uuid.UUID            `json:"updated_by"`
+	CreatedAt             pgtype.Timestamptz   `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz   `json:"updated_at"`
+}
+
+type AdCampaignMetricsDaily struct {
+	AdCampaignID     uuid.UUID          `json:"ad_campaign_id"`
+	MetricDate       pgtype.Date        `json:"metric_date"`
+	SpendMinor       int64              `json:"spend_minor"`
+	Impressions      int64              `json:"impressions"`
+	Reach            int64              `json:"reach"`
+	Clicks           int64              `json:"clicks"`
+	Conversions      pgtype.Numeric     `json:"conversions"`
+	Leads            pgtype.Numeric     `json:"leads"`
+	Purchases        pgtype.Numeric     `json:"purchases"`
+	RevenueMinor     int64              `json:"revenue_minor"`
+	Frequency        pgtype.Numeric     `json:"frequency"`
+	ProviderResponse []byte             `json:"provider_response"`
+	SyncedAt         pgtype.Timestamptz `json:"synced_at"`
+}
+
+type AdCreative struct {
+	ID                  uuid.UUID          `json:"id"`
+	AdCampaignID        uuid.UUID          `json:"ad_campaign_id"`
+	MediaAssetID        uuid.UUID          `json:"media_asset_id"`
+	ThumbnailAssetID    uuid.NullUUID      `json:"thumbnail_asset_id"`
+	PrimaryTextVariants []byte             `json:"primary_text_variants"`
+	HeadlineVariants    []byte             `json:"headline_variants"`
+	CtaVariants         []byte             `json:"cta_variants"`
+	PreviewSpec         []byte             `json:"preview_spec"`
+	ProviderCreativeID  *string            `json:"provider_creative_id"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AdMetricsDaily struct {
+	AdID             uuid.UUID          `json:"ad_id"`
+	MetricDate       pgtype.Date        `json:"metric_date"`
+	SpendMinor       int64              `json:"spend_minor"`
+	Impressions      int64              `json:"impressions"`
+	Clicks           int64              `json:"clicks"`
+	Conversions      pgtype.Numeric     `json:"conversions"`
+	ProviderResponse []byte             `json:"provider_response"`
+	SyncedAt         pgtype.Timestamptz `json:"synced_at"`
+}
+
+type AdRecommendation struct {
+	ID                 uuid.UUID            `json:"id"`
+	ClientID           uuid.UUID            `json:"client_id"`
+	WorkspaceID        uuid.UUID            `json:"workspace_id"`
+	CampaignID         uuid.NullUUID        `json:"campaign_id"`
+	AdCampaignID       uuid.NullUUID        `json:"ad_campaign_id"`
+	RecommendationType string               `json:"recommendation_type"`
+	RecommendationHash string               `json:"recommendation_hash"`
+	InputSnapshot      []byte               `json:"input_snapshot"`
+	Model              string               `json:"model"`
+	Output             string               `json:"output"`
+	Rationale          string               `json:"rationale"`
+	Status             RecommendationStatus `json:"status"`
+	ReviewerID         uuid.NullUUID        `json:"reviewer_id"`
+	ReviewNotes        string               `json:"review_notes"`
+	ReviewedAt         pgtype.Timestamptz   `json:"reviewed_at"`
+	ActionTaken        string               `json:"action_taken"`
+	Version            int64                `json:"version"`
+	CreatedBy          uuid.UUID            `json:"created_by"`
+	CreatedAt          pgtype.Timestamptz   `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz   `json:"updated_at"`
+}
+
+type AdSet struct {
+	ID               uuid.UUID          `json:"id"`
+	AdCampaignID     uuid.UUID          `json:"ad_campaign_id"`
+	Name             string             `json:"name"`
+	Audience         []byte             `json:"audience"`
+	Placements       []string           `json:"placements"`
+	OptimizationGoal string             `json:"optimization_goal"`
+	BillingEvent     string             `json:"billing_event"`
+	ProviderAdSetID  *string            `json:"provider_ad_set_id"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+type AdSetMetricsDaily struct {
+	AdSetID          uuid.UUID          `json:"ad_set_id"`
+	MetricDate       pgtype.Date        `json:"metric_date"`
+	SpendMinor       int64              `json:"spend_minor"`
+	Impressions      int64              `json:"impressions"`
+	Clicks           int64              `json:"clicks"`
+	Conversions      pgtype.Numeric     `json:"conversions"`
+	ProviderResponse []byte             `json:"provider_response"`
+	SyncedAt         pgtype.Timestamptz `json:"synced_at"`
+}
+
+type AnalyticsWorkspaceDaily struct {
+	WorkspaceID       uuid.NullUUID `json:"workspace_id"`
+	CampaignID        uuid.NullUUID `json:"campaign_id"`
+	MetricDate        pgtype.Date   `json:"metric_date"`
+	ProviderCostUsd   int64         `json:"provider_cost_usd"`
+	SocialViews       int64         `json:"social_views"`
+	SocialImpressions int64         `json:"social_impressions"`
+	SocialClicks      int64         `json:"social_clicks"`
+	AdSpendMinor      int64         `json:"ad_spend_minor"`
+	AdImpressions     int64         `json:"ad_impressions"`
+	AdClicks          int64         `json:"ad_clicks"`
+	AdConversions     int64         `json:"ad_conversions"`
+	AdRevenueMinor    int64         `json:"ad_revenue_minor"`
+}
+
+type Approval struct {
+	ID                 uuid.UUID             `json:"id"`
+	ClientID           uuid.UUID             `json:"client_id"`
+	WorkspaceID        uuid.UUID             `json:"workspace_id"`
+	CampaignID         uuid.NullUUID         `json:"campaign_id"`
+	EntityType         string                `json:"entity_type"`
+	EntityID           uuid.UUID             `json:"entity_id"`
+	EntityVersion      int64                 `json:"entity_version"`
+	EntityHash         string                `json:"entity_hash"`
+	Status             PlanningContentStatus `json:"status"`
+	RequestedBy        uuid.NullUUID         `json:"requested_by"`
+	RequestedAt        pgtype.Timestamptz    `json:"requested_at"`
+	DecidedBy          uuid.NullUUID         `json:"decided_by"`
+	DecidedAt          pgtype.Timestamptz    `json:"decided_at"`
+	Notes              string                `json:"notes"`
+	InvalidatedAt      pgtype.Timestamptz    `json:"invalidated_at"`
+	InvalidationReason *string               `json:"invalidation_reason"`
+	CreatedAt          pgtype.Timestamptz    `json:"created_at"`
+}
+
+type ApprovalEvent struct {
+	ID            uuid.UUID          `json:"id"`
+	ApprovalID    uuid.UUID          `json:"approval_id"`
+	EventType     ApprovalEventType  `json:"event_type"`
+	ActorID       uuid.NullUUID      `json:"actor_id"`
+	EntityVersion int64              `json:"entity_version"`
+	EntityHash    string             `json:"entity_hash"`
+	Notes         string             `json:"notes"`
+	OccurredAt    pgtype.Timestamptz `json:"occurred_at"`
+}
+
 type AuditLog struct {
 	ID                  uuid.UUID          `json:"id"`
 	ActorInternalUserID uuid.NullUUID      `json:"actor_internal_user_id"`
@@ -160,6 +1697,280 @@ type AuditLog struct {
 	OccurredAt          pgtype.Timestamptz `json:"occurred_at"`
 }
 
+type Brand struct {
+	ID             uuid.UUID          `json:"id"`
+	ClientID       uuid.UUID          `json:"client_id"`
+	WorkspaceID    uuid.UUID          `json:"workspace_id"`
+	Name           string             `json:"name"`
+	Status         LifecycleStatus    `json:"status"`
+	CurrentVersion int32              `json:"current_version"`
+	Version        int64              `json:"version"`
+	ArchivedAt     pgtype.Timestamptz `json:"archived_at"`
+	CreatedBy      uuid.UUID          `json:"created_by"`
+	UpdatedBy      uuid.UUID          `json:"updated_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type BrandVersion struct {
+	ID                    uuid.UUID          `json:"id"`
+	BrandID               uuid.UUID          `json:"brand_id"`
+	ClientID              uuid.UUID          `json:"client_id"`
+	WorkspaceID           uuid.UUID          `json:"workspace_id"`
+	Version               int32              `json:"version"`
+	LogoAssetIds          []uuid.UUID        `json:"logo_asset_ids"`
+	PrimaryColor          *string            `json:"primary_color"`
+	SecondaryColor        *string            `json:"secondary_color"`
+	BackgroundColor       *string            `json:"background_color"`
+	HeadingFont           *string            `json:"heading_font"`
+	BodyFont              *string            `json:"body_font"`
+	ToneOfVoice           string             `json:"tone_of_voice"`
+	PrimaryLanguage       string             `json:"primary_language"`
+	TargetAudience        string             `json:"target_audience"`
+	MainMessage           string             `json:"main_message"`
+	DefaultCta            string             `json:"default_cta"`
+	Website               *string            `json:"website"`
+	PhoneNumber           *string            `json:"phone_number"`
+	PreferredTerminology  []string           `json:"preferred_terminology"`
+	ProhibitedTerminology []string           `json:"prohibited_terminology"`
+	DefaultDisclaimer     string             `json:"default_disclaimer"`
+	DefaultVideoStyle     string             `json:"default_video_style"`
+	DefaultMusicStyle     string             `json:"default_music_style"`
+	ChangeSummary         string             `json:"change_summary"`
+	CreatedBy             uuid.UUID          `json:"created_by"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+}
+
+type Campaign struct {
+	ID                uuid.UUID          `json:"id"`
+	ClientID          uuid.UUID          `json:"client_id"`
+	WorkspaceID       uuid.UUID          `json:"workspace_id"`
+	BrandID           uuid.UUID          `json:"brand_id"`
+	ProductID         uuid.UUID          `json:"product_id"`
+	Name              string             `json:"name"`
+	Status            CampaignStatus     `json:"status"`
+	CurrentVersion    int32              `json:"current_version"`
+	SelectedConceptID uuid.NullUUID      `json:"selected_concept_id"`
+	Version           int64              `json:"version"`
+	ArchivedAt        pgtype.Timestamptz `json:"archived_at"`
+	CreatedBy         uuid.UUID          `json:"created_by"`
+	UpdatedBy         uuid.UUID          `json:"updated_by"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
+type CampaignCharacter struct {
+	CampaignID  uuid.UUID          `json:"campaign_id"`
+	CharacterID uuid.UUID          `json:"character_id"`
+	Role        string             `json:"role"`
+	SelectedBy  uuid.UUID          `json:"selected_by"`
+	SelectedAt  pgtype.Timestamptz `json:"selected_at"`
+}
+
+type CampaignConcept struct {
+	ID               uuid.UUID          `json:"id"`
+	CampaignID       uuid.UUID          `json:"campaign_id"`
+	ClientID         uuid.UUID          `json:"client_id"`
+	WorkspaceID      uuid.UUID          `json:"workspace_id"`
+	Title            string             `json:"title"`
+	VideoFormat      string             `json:"video_format"`
+	Status           ConceptStatus      `json:"status"`
+	Payload          []byte             `json:"payload"`
+	CurrentVersion   int32              `json:"current_version"`
+	PromptVersion    string             `json:"prompt_version"`
+	Model            string             `json:"model"`
+	RequestID        string             `json:"request_id"`
+	OutputHash       string             `json:"output_hash"`
+	EstimatedCostUsd pgtype.Numeric     `json:"estimated_cost_usd"`
+	LockedAt         pgtype.Timestamptz `json:"locked_at"`
+	LockedBy         uuid.NullUUID      `json:"locked_by"`
+	Version          int64              `json:"version"`
+	CreatedBy        uuid.NullUUID      `json:"created_by"`
+	UpdatedBy        uuid.NullUUID      `json:"updated_by"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt        pgtype.Timestamptz `json:"updated_at"`
+}
+
+type CampaignConceptVersion struct {
+	ID            uuid.UUID          `json:"id"`
+	ConceptID     uuid.UUID          `json:"concept_id"`
+	Version       int32              `json:"version"`
+	Title         string             `json:"title"`
+	VideoFormat   string             `json:"video_format"`
+	Payload       []byte             `json:"payload"`
+	OutputHash    string             `json:"output_hash"`
+	ChangeSummary string             `json:"change_summary"`
+	CreatedBy     uuid.NullUUID      `json:"created_by"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
+type CampaignContentVariant struct {
+	ID             uuid.UUID             `json:"id"`
+	CampaignID     uuid.UUID             `json:"campaign_id"`
+	ClientID       uuid.UUID             `json:"client_id"`
+	WorkspaceID    uuid.UUID             `json:"workspace_id"`
+	VariantKey     string                `json:"variant_key"`
+	Platform       string                `json:"platform"`
+	Content        string                `json:"content"`
+	Status         PlanningContentStatus `json:"status"`
+	CurrentVersion int32                 `json:"current_version"`
+	ContentHash    string                `json:"content_hash"`
+	PromptVersion  string                `json:"prompt_version"`
+	Model          string                `json:"model"`
+	Version        int64                 `json:"version"`
+	ApprovedAt     pgtype.Timestamptz    `json:"approved_at"`
+	ApprovedBy     uuid.NullUUID         `json:"approved_by"`
+	CreatedBy      uuid.NullUUID         `json:"created_by"`
+	UpdatedBy      uuid.NullUUID         `json:"updated_by"`
+	CreatedAt      pgtype.Timestamptz    `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz    `json:"updated_at"`
+}
+
+type CampaignContentVariantVersion struct {
+	ID               uuid.UUID          `json:"id"`
+	ContentVariantID uuid.UUID          `json:"content_variant_id"`
+	Version          int32              `json:"version"`
+	Content          string             `json:"content"`
+	ContentHash      string             `json:"content_hash"`
+	ChangeSummary    string             `json:"change_summary"`
+	CreatedBy        uuid.NullUUID      `json:"created_by"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
+type CampaignVersion struct {
+	ID                    uuid.UUID          `json:"id"`
+	CampaignID            uuid.UUID          `json:"campaign_id"`
+	ClientID              uuid.UUID          `json:"client_id"`
+	WorkspaceID           uuid.UUID          `json:"workspace_id"`
+	Version               int32              `json:"version"`
+	Objective             CampaignObjective  `json:"objective"`
+	TargetAudience        string             `json:"target_audience"`
+	Market                string             `json:"market"`
+	Country               string             `json:"country"`
+	Language              string             `json:"language"`
+	SocialPlatformTargets []string           `json:"social_platform_targets"`
+	VideoFormat           string             `json:"video_format"`
+	DurationSeconds       int32              `json:"duration_seconds"`
+	AspectRatio           string             `json:"aspect_ratio"`
+	Tone                  string             `json:"tone"`
+	Offer                 string             `json:"offer"`
+	Cta                   string             `json:"cta"`
+	PlannedAdsBudget      pgtype.Numeric     `json:"planned_ads_budget"`
+	BudgetCurrency        *string            `json:"budget_currency"`
+	StartsOn              pgtype.Date        `json:"starts_on"`
+	EndsOn                pgtype.Date        `json:"ends_on"`
+	ChangeSummary         string             `json:"change_summary"`
+	CreatedBy             uuid.UUID          `json:"created_by"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+}
+
+type Character struct {
+	ID                    uuid.UUID          `json:"id"`
+	ClientID              uuid.NullUUID      `json:"client_id"`
+	WorkspaceID           uuid.NullUUID      `json:"workspace_id"`
+	Name                  string             `json:"name"`
+	Provider              string             `json:"provider"`
+	ProviderAssetID       *string            `json:"provider_asset_id"`
+	CharacterType         CharacterType      `json:"character_type"`
+	GenderPresentation    string             `json:"gender_presentation"`
+	ApproximateAgeRange   string             `json:"approximate_age_range"`
+	AppearanceDescription string             `json:"appearance_description"`
+	Wardrobe              string             `json:"wardrobe"`
+	GestureStyle          string             `json:"gesture_style"`
+	DefaultRole           string             `json:"default_role"`
+	SupportedLanguages    []string           `json:"supported_languages"`
+	ConsentStatus         ConsentStatus      `json:"consent_status"`
+	PreviewAssetID        uuid.NullUUID      `json:"preview_asset_id"`
+	Status                LifecycleStatus    `json:"status"`
+	Version               int64              `json:"version"`
+	CreatedBy             uuid.UUID          `json:"created_by"`
+	UpdatedBy             uuid.UUID          `json:"updated_by"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+}
+
+type CharacterAsset struct {
+	CharacterID  uuid.UUID          `json:"character_id"`
+	MediaAssetID uuid.UUID          `json:"media_asset_id"`
+	Purpose      string             `json:"purpose"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+type CharacterConsent struct {
+	ID              uuid.UUID          `json:"id"`
+	CharacterID     uuid.UUID          `json:"character_id"`
+	Status          ConsentStatus      `json:"status"`
+	ArtifactAssetID uuid.NullUUID      `json:"artifact_asset_id"`
+	SubjectName     string             `json:"subject_name"`
+	GrantedAt       pgtype.Timestamptz `json:"granted_at"`
+	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
+	RevokedAt       pgtype.Timestamptz `json:"revoked_at"`
+	Notes           string             `json:"notes"`
+	RecordedBy      uuid.UUID          `json:"recorded_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
+type Client struct {
+	ID                  uuid.UUID          `json:"id"`
+	CompanyName         string             `json:"company_name"`
+	ContactName         string             `json:"contact_name"`
+	ContactEmail        *string            `json:"contact_email"`
+	Phone               *string            `json:"phone"`
+	Industry            string             `json:"industry"`
+	Market              string             `json:"market"`
+	InternalNotes       string             `json:"internal_notes"`
+	Status              LifecycleStatus    `json:"status"`
+	FutureTenantOwnerID *string            `json:"future_tenant_owner_id"`
+	Version             int64              `json:"version"`
+	ArchivedAt          pgtype.Timestamptz `json:"archived_at"`
+	CreatedBy           uuid.UUID          `json:"created_by"`
+	UpdatedBy           uuid.UUID          `json:"updated_by"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
+type CostEstimate struct {
+	ID                    uuid.UUID           `json:"id"`
+	ClientID              uuid.UUID           `json:"client_id"`
+	WorkspaceID           uuid.UUID           `json:"workspace_id"`
+	CampaignID            uuid.UUID           `json:"campaign_id"`
+	Operation             GenerationOperation `json:"operation"`
+	Model                 string              `json:"model"`
+	Currency              string              `json:"currency"`
+	EstimatedInputTokens  int64               `json:"estimated_input_tokens"`
+	EstimatedOutputTokens int64               `json:"estimated_output_tokens"`
+	EstimatedVideoSeconds int64               `json:"estimated_video_seconds"`
+	EstimatedCost         pgtype.Numeric      `json:"estimated_cost"`
+	Assumptions           []byte              `json:"assumptions"`
+	ExpiresAt             pgtype.Timestamptz  `json:"expires_at"`
+	CreatedAt             pgtype.Timestamptz  `json:"created_at"`
+}
+
+type CostRecord struct {
+	ID                  uuid.UUID          `json:"id"`
+	UsageLedgerID       uuid.NullUUID      `json:"usage_ledger_id"`
+	ClientID            uuid.NullUUID      `json:"client_id"`
+	WorkspaceID         uuid.NullUUID      `json:"workspace_id"`
+	CampaignID          uuid.NullUUID      `json:"campaign_id"`
+	Category            string             `json:"category"`
+	Provider            string             `json:"provider"`
+	Amount              pgtype.Numeric     `json:"amount"`
+	Currency            string             `json:"currency"`
+	NormalizedAmountUsd pgtype.Numeric     `json:"normalized_amount_usd"`
+	Estimated           bool               `json:"estimated"`
+	Metadata            []byte             `json:"metadata"`
+	OccurredAt          pgtype.Timestamptz `json:"occurred_at"`
+}
+
+type ExchangeRateSnapshot struct {
+	ID            uuid.UUID          `json:"id"`
+	BaseCurrency  string             `json:"base_currency"`
+	QuoteCurrency string             `json:"quote_currency"`
+	Rate          pgtype.Numeric     `json:"rate"`
+	Source        string             `json:"source"`
+	CapturedAt    pgtype.Timestamptz `json:"captured_at"`
+}
+
 type FeatureFlag struct {
 	Key         string             `json:"key"`
 	Description string             `json:"description"`
@@ -167,6 +1978,28 @@ type FeatureFlag struct {
 	SafeConfig  []byte             `json:"safe_config"`
 	UpdatedBy   uuid.NullUUID      `json:"updated_by"`
 	UpdatedAt   pgtype.Timestamptz `json:"updated_at"`
+}
+
+type GenerationJob struct {
+	ID                 uuid.UUID           `json:"id"`
+	ClientID           uuid.UUID           `json:"client_id"`
+	WorkspaceID        uuid.UUID           `json:"workspace_id"`
+	CampaignID         uuid.UUID           `json:"campaign_id"`
+	Operation          GenerationOperation `json:"operation"`
+	Status             GenerationJobStatus `json:"status"`
+	RiverJobID         *int64              `json:"river_job_id"`
+	IdempotencyKeyHash []byte              `json:"idempotency_key_hash"`
+	InputHash          string              `json:"input_hash"`
+	EstimatedCostUsd   pgtype.Numeric      `json:"estimated_cost_usd"`
+	ActualCostUsd      pgtype.Numeric      `json:"actual_cost_usd"`
+	ProviderRequestID  uuid.NullUUID       `json:"provider_request_id"`
+	OutputSummary      []byte              `json:"output_summary"`
+	ErrorCode          *string             `json:"error_code"`
+	ErrorMessage       *string             `json:"error_message"`
+	CreatedBy          uuid.UUID           `json:"created_by"`
+	CreatedAt          pgtype.Timestamptz  `json:"created_at"`
+	StartedAt          pgtype.Timestamptz  `json:"started_at"`
+	CompletedAt        pgtype.Timestamptz  `json:"completed_at"`
 }
 
 type IdempotencyKey struct {
@@ -200,6 +2033,707 @@ type InternalUser struct {
 	UpdatedAt              pgtype.Timestamptz `json:"updated_at"`
 }
 
+type MediaAsset struct {
+	ID             uuid.UUID          `json:"id"`
+	ClientID       uuid.UUID          `json:"client_id"`
+	WorkspaceID    uuid.UUID          `json:"workspace_id"`
+	BrandID        uuid.NullUUID      `json:"brand_id"`
+	ProductID      uuid.NullUUID      `json:"product_id"`
+	CampaignID     uuid.NullUUID      `json:"campaign_id"`
+	AssetType      MediaAssetType     `json:"asset_type"`
+	Category       string             `json:"category"`
+	Name           string             `json:"name"`
+	Folder         string             `json:"folder"`
+	Status         ContentStatus      `json:"status"`
+	CurrentVersion int32              `json:"current_version"`
+	UsageRights    string             `json:"usage_rights"`
+	SourceMetadata []byte             `json:"source_metadata"`
+	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
+	TemporaryUntil pgtype.Timestamptz `json:"temporary_until"`
+	DeletedAt      pgtype.Timestamptz `json:"deleted_at"`
+	Version        int64              `json:"version"`
+	CreatedBy      uuid.UUID          `json:"created_by"`
+	UpdatedBy      uuid.UUID          `json:"updated_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MediaAssetTag struct {
+	MediaAssetID uuid.UUID          `json:"media_asset_id"`
+	Tag          string             `json:"tag"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+type MediaAssetVersion struct {
+	ID                  uuid.UUID          `json:"id"`
+	MediaAssetID        uuid.UUID          `json:"media_asset_id"`
+	ClientID            uuid.UUID          `json:"client_id"`
+	WorkspaceID         uuid.UUID          `json:"workspace_id"`
+	Version             int32              `json:"version"`
+	StorageKey          string             `json:"storage_key"`
+	OriginalFilename    string             `json:"original_filename"`
+	MimeType            string             `json:"mime_type"`
+	FileExtension       string             `json:"file_extension"`
+	FileSizeBytes       int64              `json:"file_size_bytes"`
+	ChecksumSha256      *string            `json:"checksum_sha256"`
+	Width               *int32             `json:"width"`
+	Height              *int32             `json:"height"`
+	DurationMs          *int64             `json:"duration_ms"`
+	Codec               *string            `json:"codec"`
+	BitrateBps          *int64             `json:"bitrate_bps"`
+	ThumbnailStorageKey *string            `json:"thumbnail_storage_key"`
+	Metadata            []byte             `json:"metadata"`
+	VerifiedAt          pgtype.Timestamptz `json:"verified_at"`
+	CreatedBy           uuid.UUID          `json:"created_by"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+}
+
+type MediaUpload struct {
+	ID                uuid.UUID          `json:"id"`
+	ClientID          uuid.UUID          `json:"client_id"`
+	WorkspaceID       uuid.UUID          `json:"workspace_id"`
+	MediaAssetID      uuid.UUID          `json:"media_asset_id"`
+	StorageKey        string             `json:"storage_key"`
+	MultipartUploadID *string            `json:"multipart_upload_id"`
+	ExpectedFilename  string             `json:"expected_filename"`
+	ExpectedMimeType  string             `json:"expected_mime_type"`
+	ExpectedExtension string             `json:"expected_extension"`
+	ExpectedSizeBytes int64              `json:"expected_size_bytes"`
+	Status            UploadStatus       `json:"status"`
+	ExpiresAt         pgtype.Timestamptz `json:"expires_at"`
+	CompletedAt       pgtype.Timestamptz `json:"completed_at"`
+	FailureReason     *string            `json:"failure_reason"`
+	CreatedBy         uuid.UUID          `json:"created_by"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+type MetaAdAccount struct {
+	ID                    uuid.UUID          `json:"id"`
+	MetaBusinessID        uuid.NullUUID      `json:"meta_business_id"`
+	ConnectionID          uuid.UUID          `json:"connection_id"`
+	ClientID              uuid.UUID          `json:"client_id"`
+	WorkspaceID           uuid.UUID          `json:"workspace_id"`
+	ProviderAdAccountID   string             `json:"provider_ad_account_id"`
+	Name                  string             `json:"name"`
+	Currency              string             `json:"currency"`
+	TimezoneName          string             `json:"timezone_name"`
+	AccountStatus         *int32             `json:"account_status"`
+	ProviderSpendCapMinor *int64             `json:"provider_spend_cap_minor"`
+	AmountSpentMinor      *int64             `json:"amount_spent_minor"`
+	LastSyncedAt          pgtype.Timestamptz `json:"last_synced_at"`
+	CreatedAt             pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MetaAdAction struct {
+	ID                   uuid.UUID          `json:"id"`
+	AdCampaignID         uuid.UUID          `json:"ad_campaign_id"`
+	Action               MetaActionType     `json:"action"`
+	Status               MetaActionStatus   `json:"status"`
+	RequestedBudgetMinor *int64             `json:"requested_budget_minor"`
+	PreviousBudgetMinor  *int64             `json:"previous_budget_minor"`
+	ConfirmationText     string             `json:"confirmation_text"`
+	ActionHash           string             `json:"action_hash"`
+	IdempotencyKey       string             `json:"idempotency_key"`
+	RiverJobID           *int64             `json:"river_job_id"`
+	RequestedBy          uuid.UUID          `json:"requested_by"`
+	ReviewedBy           uuid.NullUUID      `json:"reviewed_by"`
+	ReviewNotes          string             `json:"review_notes"`
+	SafeResponse         []byte             `json:"safe_response"`
+	ErrorCode            *string            `json:"error_code"`
+	ErrorMessage         *string            `json:"error_message"`
+	RequestedAt          pgtype.Timestamptz `json:"requested_at"`
+	ReviewedAt           pgtype.Timestamptz `json:"reviewed_at"`
+	CompletedAt          pgtype.Timestamptz `json:"completed_at"`
+	Version              int64              `json:"version"`
+}
+
+type MetaAdGuardrail struct {
+	WorkspaceID                  uuid.UUID          `json:"workspace_id"`
+	ClientID                     uuid.UUID          `json:"client_id"`
+	WorkspaceSpendCapMinor       int64              `json:"workspace_spend_cap_minor"`
+	DefaultCampaignSpendCapMinor int64              `json:"default_campaign_spend_cap_minor"`
+	MaximumBudgetIncreasePercent pgtype.Numeric     `json:"maximum_budget_increase_percent"`
+	Currency                     string             `json:"currency"`
+	Version                      int64              `json:"version"`
+	UpdatedBy                    uuid.UUID          `json:"updated_by"`
+	UpdatedAt                    pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MetaAudience struct {
+	ID                 uuid.UUID          `json:"id"`
+	MetaAdAccountID    uuid.UUID          `json:"meta_ad_account_id"`
+	ProviderAudienceID string             `json:"provider_audience_id"`
+	Name               string             `json:"name"`
+	AudienceType       string             `json:"audience_type"`
+	Subtype            *string            `json:"subtype"`
+	ApproximateCount   *int64             `json:"approximate_count"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MetaBusiness struct {
+	ID                 uuid.UUID          `json:"id"`
+	ConnectionID       uuid.UUID          `json:"connection_id"`
+	ClientID           uuid.UUID          `json:"client_id"`
+	WorkspaceID        uuid.UUID          `json:"workspace_id"`
+	ProviderBusinessID string             `json:"provider_business_id"`
+	Name               string             `json:"name"`
+	VerificationStatus *string            `json:"verification_status"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MetaConnection struct {
+	ID                  uuid.UUID            `json:"id"`
+	ClientID            uuid.UUID            `json:"client_id"`
+	WorkspaceID         uuid.UUID            `json:"workspace_id"`
+	MetaUserID          string               `json:"meta_user_id"`
+	DisplayName         string               `json:"display_name"`
+	TokenCiphertext     []byte               `json:"token_ciphertext"`
+	TokenNonce          []byte               `json:"token_nonce"`
+	TokenType           string               `json:"token_type"`
+	Scopes              []string             `json:"scopes"`
+	TokenIssuedAt       pgtype.Timestamptz   `json:"token_issued_at"`
+	TokenExpiresAt      pgtype.Timestamptz   `json:"token_expires_at"`
+	DataAccessExpiresAt pgtype.Timestamptz   `json:"data_access_expires_at"`
+	ApiVersion          string               `json:"api_version"`
+	Status              MetaConnectionStatus `json:"status"`
+	LastValidatedAt     pgtype.Timestamptz   `json:"last_validated_at"`
+	LastErrorCode       *string              `json:"last_error_code"`
+	LastErrorMessage    *string              `json:"last_error_message"`
+	DisconnectedAt      pgtype.Timestamptz   `json:"disconnected_at"`
+	Version             int64                `json:"version"`
+	CreatedBy           uuid.UUID            `json:"created_by"`
+	UpdatedBy           uuid.UUID            `json:"updated_by"`
+	CreatedAt           pgtype.Timestamptz   `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz   `json:"updated_at"`
+}
+
+type MetaOauthState struct {
+	StateHash   string             `json:"state_hash"`
+	ActorID     uuid.UUID          `json:"actor_id"`
+	ClientID    uuid.UUID          `json:"client_id"`
+	WorkspaceID uuid.UUID          `json:"workspace_id"`
+	ExpiresAt   pgtype.Timestamptz `json:"expires_at"`
+	ConsumedAt  pgtype.Timestamptz `json:"consumed_at"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+}
+
+type MetaPixel struct {
+	ID              uuid.UUID          `json:"id"`
+	MetaAdAccountID uuid.UUID          `json:"meta_ad_account_id"`
+	ProviderPixelID string             `json:"provider_pixel_id"`
+	Name            string             `json:"name"`
+	ConversionEvent *string            `json:"conversion_event"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type MetaWebhookEvent struct {
+	ID               uuid.UUID          `json:"id"`
+	DeliveryHash     string             `json:"delivery_hash"`
+	SignatureValid   bool               `json:"signature_valid"`
+	ObjectType       string             `json:"object_type"`
+	NormalizedEvents []byte             `json:"normalized_events"`
+	ProcessedAt      pgtype.Timestamptz `json:"processed_at"`
+	ProcessingError  *string            `json:"processing_error"`
+	ReceivedAt       pgtype.Timestamptz `json:"received_at"`
+}
+
+type Notification struct {
+	ID               uuid.UUID            `json:"id"`
+	InternalUserID   uuid.NullUUID        `json:"internal_user_id"`
+	ClientID         uuid.NullUUID        `json:"client_id"`
+	WorkspaceID      uuid.NullUUID        `json:"workspace_id"`
+	Severity         NotificationSeverity `json:"severity"`
+	NotificationType string               `json:"notification_type"`
+	Title            string               `json:"title"`
+	Message          string               `json:"message"`
+	EntityType       *string              `json:"entity_type"`
+	EntityID         uuid.NullUUID        `json:"entity_id"`
+	ReadAt           pgtype.Timestamptz   `json:"read_at"`
+	CreatedAt        pgtype.Timestamptz   `json:"created_at"`
+}
+
+type Product struct {
+	ID             uuid.UUID          `json:"id"`
+	ClientID       uuid.UUID          `json:"client_id"`
+	WorkspaceID    uuid.UUID          `json:"workspace_id"`
+	BrandID        uuid.NullUUID      `json:"brand_id"`
+	Name           string             `json:"name"`
+	Sku            string             `json:"sku"`
+	Model          string             `json:"model"`
+	Category       string             `json:"category"`
+	VerticalKey    string             `json:"vertical_key"`
+	Status         ContentStatus      `json:"status"`
+	CurrentVersion int32              `json:"current_version"`
+	Version        int64              `json:"version"`
+	ArchivedAt     pgtype.Timestamptz `json:"archived_at"`
+	CreatedBy      uuid.UUID          `json:"created_by"`
+	UpdatedBy      uuid.UUID          `json:"updated_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProductClaim struct {
+	ID            uuid.UUID          `json:"id"`
+	ProductID     uuid.UUID          `json:"product_id"`
+	ClientID      uuid.UUID          `json:"client_id"`
+	WorkspaceID   uuid.UUID          `json:"workspace_id"`
+	ClaimKind     ClaimKind          `json:"claim_kind"`
+	ClaimText     string             `json:"claim_text"`
+	Rationale     string             `json:"rationale"`
+	Status        FactStatus         `json:"status"`
+	EffectiveFrom pgtype.Timestamptz `json:"effective_from"`
+	ExpiresAt     pgtype.Timestamptz `json:"expires_at"`
+	Version       int64              `json:"version"`
+	ApprovedBy    uuid.NullUUID      `json:"approved_by"`
+	ApprovedAt    pgtype.Timestamptz `json:"approved_at"`
+	CreatedBy     uuid.UUID          `json:"created_by"`
+	UpdatedBy     uuid.UUID          `json:"updated_by"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt     pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProductClaimSource struct {
+	ID              uuid.UUID          `json:"id"`
+	ClaimID         uuid.UUID          `json:"claim_id"`
+	FactID          uuid.NullUUID      `json:"fact_id"`
+	MediaAssetID    uuid.NullUUID      `json:"media_asset_id"`
+	EvidenceExcerpt string             `json:"evidence_excerpt"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
+type ProductClaimVersion struct {
+	ID             uuid.UUID          `json:"id"`
+	ProductClaimID uuid.UUID          `json:"product_claim_id"`
+	Version        int64              `json:"version"`
+	ClaimText      string             `json:"claim_text"`
+	Rationale      string             `json:"rationale"`
+	ChangeSummary  string             `json:"change_summary"`
+	CreatedBy      uuid.UUID          `json:"created_by"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type ProductFact struct {
+	ID              uuid.UUID          `json:"id"`
+	ProductID       uuid.UUID          `json:"product_id"`
+	ClientID        uuid.UUID          `json:"client_id"`
+	WorkspaceID     uuid.UUID          `json:"workspace_id"`
+	FactKey         string             `json:"fact_key"`
+	Label           string             `json:"label"`
+	ExactValue      string             `json:"exact_value"`
+	NormalizedValue []byte             `json:"normalized_value"`
+	Unit            *string            `json:"unit"`
+	SourceName      string             `json:"source_name"`
+	SourceExcerpt   string             `json:"source_excerpt"`
+	SourceAssetID   uuid.NullUUID      `json:"source_asset_id"`
+	Status          FactStatus         `json:"status"`
+	LockedValue     bool               `json:"locked_value"`
+	EffectiveFrom   pgtype.Timestamptz `json:"effective_from"`
+	ExpiresAt       pgtype.Timestamptz `json:"expires_at"`
+	Version         int64              `json:"version"`
+	ApprovedBy      uuid.NullUUID      `json:"approved_by"`
+	ApprovedAt      pgtype.Timestamptz `json:"approved_at"`
+	CreatedBy       uuid.UUID          `json:"created_by"`
+	UpdatedBy       uuid.UUID          `json:"updated_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt       pgtype.Timestamptz `json:"updated_at"`
+}
+
+type ProductFactVersion struct {
+	ID              uuid.UUID          `json:"id"`
+	ProductFactID   uuid.UUID          `json:"product_fact_id"`
+	Version         int64              `json:"version"`
+	Label           string             `json:"label"`
+	ExactValue      string             `json:"exact_value"`
+	NormalizedValue []byte             `json:"normalized_value"`
+	Unit            *string            `json:"unit"`
+	SourceName      string             `json:"source_name"`
+	SourceExcerpt   string             `json:"source_excerpt"`
+	SourceAssetID   uuid.NullUUID      `json:"source_asset_id"`
+	LockedValue     bool               `json:"locked_value"`
+	ChangeSummary   string             `json:"change_summary"`
+	CreatedBy       uuid.UUID          `json:"created_by"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
+type ProductVersion struct {
+	ID               uuid.UUID          `json:"id"`
+	ProductID        uuid.UUID          `json:"product_id"`
+	ClientID         uuid.UUID          `json:"client_id"`
+	WorkspaceID      uuid.UUID          `json:"workspace_id"`
+	Version          int32              `json:"version"`
+	ShortDescription string             `json:"short_description"`
+	LongDescription  string             `json:"long_description"`
+	Features         []string           `json:"features"`
+	Benefits         []string           `json:"benefits"`
+	Differentiators  []string           `json:"differentiators"`
+	IntendedAudience string             `json:"intended_audience"`
+	Currency         *string            `json:"currency"`
+	RegularPrice     pgtype.Numeric     `json:"regular_price"`
+	SalePrice        pgtype.Numeric     `json:"sale_price"`
+	DiscountCode     *string            `json:"discount_code"`
+	OfferValidFrom   pgtype.Timestamptz `json:"offer_valid_from"`
+	OfferValidUntil  pgtype.Timestamptz `json:"offer_valid_until"`
+	Variants         []byte             `json:"variants"`
+	ChangeSummary    string             `json:"change_summary"`
+	CreatedBy        uuid.UUID          `json:"created_by"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
+type ProductVerticalDatum struct {
+	ID            uuid.UUID          `json:"id"`
+	ProductID     uuid.UUID          `json:"product_id"`
+	ClientID      uuid.UUID          `json:"client_id"`
+	WorkspaceID   uuid.UUID          `json:"workspace_id"`
+	VerticalKey   string             `json:"vertical_key"`
+	SchemaVersion int32              `json:"schema_version"`
+	Data          []byte             `json:"data"`
+	DataHash      string             `json:"data_hash"`
+	ValidatedAt   pgtype.Timestamptz `json:"validated_at"`
+	CreatedBy     uuid.UUID          `json:"created_by"`
+	CreatedAt     pgtype.Timestamptz `json:"created_at"`
+}
+
+type ProviderOutput struct {
+	ID                uuid.UUID          `json:"id"`
+	ProviderRequestID uuid.UUID          `json:"provider_request_id"`
+	OutputHash        string             `json:"output_hash"`
+	NormalizedOutput  []byte             `json:"normalized_output"`
+	ValidationErrors  []byte             `json:"validation_errors"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+}
+
+type ProviderRequest struct {
+	ID                uuid.UUID             `json:"id"`
+	ClientID          uuid.UUID             `json:"client_id"`
+	WorkspaceID       uuid.UUID             `json:"workspace_id"`
+	CampaignID        uuid.NullUUID         `json:"campaign_id"`
+	Provider          string                `json:"provider"`
+	Operation         GenerationOperation   `json:"operation"`
+	Model             string                `json:"model"`
+	PromptVersion     string                `json:"prompt_version"`
+	ProviderRequestID *string               `json:"provider_request_id"`
+	InputHash         string                `json:"input_hash"`
+	Status            ProviderRequestStatus `json:"status"`
+	StartedAt         pgtype.Timestamptz    `json:"started_at"`
+	CompletedAt       pgtype.Timestamptz    `json:"completed_at"`
+	LatencyMs         *int64                `json:"latency_ms"`
+	InputTokens       *int64                `json:"input_tokens"`
+	OutputTokens      *int64                `json:"output_tokens"`
+	EstimatedCostUsd  pgtype.Numeric        `json:"estimated_cost_usd"`
+	ActualCostUsd     pgtype.Numeric        `json:"actual_cost_usd"`
+	ErrorCode         *string               `json:"error_code"`
+	ErrorMessage      *string               `json:"error_message"`
+	CreatedBy         uuid.NullUUID         `json:"created_by"`
+	CreatedAt         pgtype.Timestamptz    `json:"created_at"`
+}
+
+type ProviderWebhookDelivery struct {
+	ID              uuid.UUID          `json:"id"`
+	Provider        string             `json:"provider"`
+	ProviderTaskID  string             `json:"provider_task_id"`
+	PayloadHash     string             `json:"payload_hash"`
+	RequestID       string             `json:"request_id"`
+	SignatureValid  bool               `json:"signature_valid"`
+	StatusCode      *int32             `json:"status_code"`
+	ProcessedAt     pgtype.Timestamptz `json:"processed_at"`
+	ProcessingError *string            `json:"processing_error"`
+	ReceivedAt      pgtype.Timestamptz `json:"received_at"`
+}
+
+type PublishJob struct {
+	ID                 uuid.UUID          `json:"id"`
+	SocialPostID       uuid.UUID          `json:"social_post_id"`
+	IdempotencyKey     string             `json:"idempotency_key"`
+	RiverJobID         *int64             `json:"river_job_id"`
+	AttemptCount       int32              `json:"attempt_count"`
+	LastErrorRetryable *bool              `json:"last_error_retryable"`
+	SafeResponse       []byte             `json:"safe_response"`
+	CreatedAt          pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt          pgtype.Timestamptz `json:"updated_at"`
+}
+
+type RenderJob struct {
+	ID                  uuid.UUID          `json:"id"`
+	ClientID            uuid.UUID          `json:"client_id"`
+	WorkspaceID         uuid.UUID          `json:"workspace_id"`
+	CampaignID          uuid.UUID          `json:"campaign_id"`
+	VideoProjectID      uuid.UUID          `json:"video_project_id"`
+	VideoProjectVersion int32              `json:"video_project_version"`
+	RenderManifestID    uuid.NullUUID      `json:"render_manifest_id"`
+	Status              RenderJobStatus    `json:"status"`
+	IdempotencyKey      string             `json:"idempotency_key"`
+	RiverJobID          *int64             `json:"river_job_id"`
+	OutputAssetID       uuid.NullUUID      `json:"output_asset_id"`
+	ThumbnailStorageKey *string            `json:"thumbnail_storage_key"`
+	SrtStorageKey       *string            `json:"srt_storage_key"`
+	VttStorageKey       *string            `json:"vtt_storage_key"`
+	OutputHash          *string            `json:"output_hash"`
+	RendererRequestID   *string            `json:"renderer_request_id"`
+	SanitizedResponse   []byte             `json:"sanitized_response"`
+	ErrorCode           *string            `json:"error_code"`
+	ErrorMessage        *string            `json:"error_message"`
+	Version             int64              `json:"version"`
+	StartedAt           pgtype.Timestamptz `json:"started_at"`
+	CompletedAt         pgtype.Timestamptz `json:"completed_at"`
+	ReviewedAt          pgtype.Timestamptz `json:"reviewed_at"`
+	ReviewedBy          uuid.NullUUID      `json:"reviewed_by"`
+	ReviewNotes         string             `json:"review_notes"`
+	CreatedBy           uuid.UUID          `json:"created_by"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
+type RenderManifest struct {
+	ID                  uuid.UUID          `json:"id"`
+	VideoProjectID      uuid.UUID          `json:"video_project_id"`
+	VideoProjectVersion int32              `json:"video_project_version"`
+	ManifestVersion     int32              `json:"manifest_version"`
+	ManifestHash        string             `json:"manifest_hash"`
+	Manifest            []byte             `json:"manifest"`
+	CreatedBy           uuid.UUID          `json:"created_by"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+}
+
+type Scene struct {
+	ID                       uuid.UUID             `json:"id"`
+	CampaignID               uuid.UUID             `json:"campaign_id"`
+	ScriptID                 uuid.UUID             `json:"script_id"`
+	ClientID                 uuid.UUID             `json:"client_id"`
+	WorkspaceID              uuid.UUID             `json:"workspace_id"`
+	SceneKey                 string                `json:"scene_key"`
+	SceneOrder               int32                 `json:"scene_order"`
+	Status                   PlanningContentStatus `json:"status"`
+	CurrentVersion           int32                 `json:"current_version"`
+	SceneHash                string                `json:"scene_hash"`
+	Version                  int64                 `json:"version"`
+	ApprovedAt               pgtype.Timestamptz    `json:"approved_at"`
+	ApprovedBy               uuid.NullUUID         `json:"approved_by"`
+	CreatedBy                uuid.NullUUID         `json:"created_by"`
+	UpdatedBy                uuid.NullUUID         `json:"updated_by"`
+	CreatedAt                pgtype.Timestamptz    `json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz    `json:"updated_at"`
+	SelectedGenerationTaskID uuid.NullUUID         `json:"selected_generation_task_id"`
+}
+
+type SceneAsset struct {
+	SceneVersionID uuid.UUID          `json:"scene_version_id"`
+	MediaAssetID   uuid.UUID          `json:"media_asset_id"`
+	Role           string             `json:"role"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type SceneGenerationEdit struct {
+	GenerationTaskID        uuid.UUID          `json:"generation_task_id"`
+	TrimStartMs             int64              `json:"trim_start_ms"`
+	TrimEndMs               *int64             `json:"trim_end_ms"`
+	MuteAudio               bool               `json:"mute_audio"`
+	Transition              string             `json:"transition"`
+	ReplacementAssetID      uuid.NullUUID      `json:"replacement_asset_id"`
+	AttachedProductAssetIds []uuid.UUID        `json:"attached_product_asset_ids"`
+	SubtitlePreview         bool               `json:"subtitle_preview"`
+	Version                 int64              `json:"version"`
+	UpdatedBy               uuid.NullUUID      `json:"updated_by"`
+	UpdatedAt               pgtype.Timestamptz `json:"updated_at"`
+}
+
+type SceneGenerationEvent struct {
+	ID                uuid.UUID              `json:"id"`
+	GenerationTaskID  uuid.UUID              `json:"generation_task_id"`
+	FromStatus        *SceneGenerationStatus `json:"from_status"`
+	ToStatus          SceneGenerationStatus  `json:"to_status"`
+	ActorID           uuid.NullUUID          `json:"actor_id"`
+	Source            string                 `json:"source"`
+	ProviderRequestID *string                `json:"provider_request_id"`
+	SafeDetail        string                 `json:"safe_detail"`
+	Metadata          []byte                 `json:"metadata"`
+	OccurredAt        pgtype.Timestamptz     `json:"occurred_at"`
+}
+
+type SceneGenerationTask struct {
+	ID                  uuid.UUID             `json:"id"`
+	ClientID            uuid.UUID             `json:"client_id"`
+	WorkspaceID         uuid.UUID             `json:"workspace_id"`
+	CampaignID          uuid.UUID             `json:"campaign_id"`
+	SceneID             uuid.UUID             `json:"scene_id"`
+	SceneVersion        int32                 `json:"scene_version"`
+	Provider            string                `json:"provider"`
+	ProviderTaskID      *string               `json:"provider_task_id"`
+	Status              SceneGenerationStatus `json:"status"`
+	IdempotencyKey      string                `json:"idempotency_key"`
+	AttemptNumber       int32                 `json:"attempt_number"`
+	Model               string                `json:"model"`
+	ApiVersion          string                `json:"api_version"`
+	Resolution          string                `json:"resolution"`
+	AspectRatio         string                `json:"aspect_ratio"`
+	DurationSeconds     int32                 `json:"duration_seconds"`
+	GenerateAudio       bool                  `json:"generate_audio"`
+	SceneHash           string                `json:"scene_hash"`
+	PromptHash          string                `json:"prompt_hash"`
+	ReferenceHash       string                `json:"reference_hash"`
+	RequestHash         string                `json:"request_hash"`
+	SanitizedRequest    []byte                `json:"sanitized_request"`
+	SanitizedResponse   []byte                `json:"sanitized_response"`
+	ProviderOutputUrl   *string               `json:"provider_output_url"`
+	OutputAssetID       uuid.NullUUID         `json:"output_asset_id"`
+	EstimatedCostUsd    pgtype.Numeric        `json:"estimated_cost_usd"`
+	ActualCostUsd       pgtype.Numeric        `json:"actual_cost_usd"`
+	UsageTokens         *int64                `json:"usage_tokens"`
+	ProviderSeed        *int64                `json:"provider_seed"`
+	ProviderFps         *int32                `json:"provider_fps"`
+	PollCount           int32                 `json:"poll_count"`
+	NextPollAt          pgtype.Timestamptz    `json:"next_poll_at"`
+	TimeoutAt           pgtype.Timestamptz    `json:"timeout_at"`
+	ErrorCategory       *string               `json:"error_category"`
+	ErrorCode           *string               `json:"error_code"`
+	ErrorMessage        *string               `json:"error_message"`
+	CancelRequestedAt   pgtype.Timestamptz    `json:"cancel_requested_at"`
+	CancelRequestedBy   uuid.NullUUID         `json:"cancel_requested_by"`
+	SubmittedAt         pgtype.Timestamptz    `json:"submitted_at"`
+	ProviderStartedAt   pgtype.Timestamptz    `json:"provider_started_at"`
+	ProviderCompletedAt pgtype.Timestamptz    `json:"provider_completed_at"`
+	DownloadedAt        pgtype.Timestamptz    `json:"downloaded_at"`
+	ReviewedAt          pgtype.Timestamptz    `json:"reviewed_at"`
+	ReviewedBy          uuid.NullUUID         `json:"reviewed_by"`
+	ReviewNotes         string                `json:"review_notes"`
+	Version             int64                 `json:"version"`
+	CreatedBy           uuid.UUID             `json:"created_by"`
+	CreatedAt           pgtype.Timestamptz    `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz    `json:"updated_at"`
+}
+
+type SceneQualityCheck struct {
+	ID                       uuid.UUID          `json:"id"`
+	GenerationTaskID         uuid.UUID          `json:"generation_task_id"`
+	Status                   QualityCheckStatus `json:"status"`
+	DeterministicPass        *bool              `json:"deterministic_pass"`
+	TranscriptPass           *bool              `json:"transcript_pass"`
+	VideoDecodes             *bool              `json:"video_decodes"`
+	DurationPass             *bool              `json:"duration_pass"`
+	ResolutionPass           *bool              `json:"resolution_pass"`
+	AudioStreamPresent       *bool              `json:"audio_stream_present"`
+	SilenceWarning           *bool              `json:"silence_warning"`
+	TranscriptDiff           []byte             `json:"transcript_diff"`
+	Findings                 []byte             `json:"findings"`
+	CharacterCountReview     *int32             `json:"character_count_review"`
+	DuplicateCharacterReview *bool              `json:"duplicate_character_review"`
+	DuplicateProductReview   *bool              `json:"duplicate_product_review"`
+	ProductColorMismatch     *bool              `json:"product_color_mismatch"`
+	BlurOrLowQualityWarning  *bool              `json:"blur_or_low_quality_warning"`
+	CropWarning              *bool              `json:"crop_warning"`
+	SubtitleOverflow         *bool              `json:"subtitle_overflow"`
+	LogoOverlap              *bool              `json:"logo_overlap"`
+	CtaSafeZoneViolation     *bool              `json:"cta_safe_zone_violation"`
+	HumanNotes               string             `json:"human_notes"`
+	ReviewedBy               uuid.NullUUID      `json:"reviewed_by"`
+	ReviewedAt               pgtype.Timestamptz `json:"reviewed_at"`
+	CompletedAt              pgtype.Timestamptz `json:"completed_at"`
+	Version                  int64              `json:"version"`
+	CreatedAt                pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                pgtype.Timestamptz `json:"updated_at"`
+}
+
+type SceneRequiredFact struct {
+	SceneVersionID uuid.UUID          `json:"scene_version_id"`
+	ProductFactID  uuid.UUID          `json:"product_fact_id"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type SceneTranscription struct {
+	ID                uuid.UUID           `json:"id"`
+	GenerationTaskID  uuid.UUID           `json:"generation_task_id"`
+	Status            TranscriptionStatus `json:"status"`
+	Provider          string              `json:"provider"`
+	Model             string              `json:"model"`
+	Language          *string             `json:"language"`
+	Transcript        string              `json:"transcript"`
+	Segments          []byte              `json:"segments"`
+	TranscriptHash    *string             `json:"transcript_hash"`
+	ProviderRequestID *string             `json:"provider_request_id"`
+	InputTokens       *int64              `json:"input_tokens"`
+	OutputTokens      *int64              `json:"output_tokens"`
+	ActualCostUsd     pgtype.Numeric      `json:"actual_cost_usd"`
+	ErrorCode         *string             `json:"error_code"`
+	ErrorMessage      *string             `json:"error_message"`
+	CompletedAt       pgtype.Timestamptz  `json:"completed_at"`
+	CreatedAt         pgtype.Timestamptz  `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz  `json:"updated_at"`
+}
+
+type SceneVersion struct {
+	ID                  uuid.UUID          `json:"id"`
+	SceneID             uuid.UUID          `json:"scene_id"`
+	Version             int32              `json:"version"`
+	DurationSeconds     int32              `json:"duration_seconds"`
+	GenerationMethod    string             `json:"generation_method"`
+	SpeakerCharacterID  uuid.NullUUID      `json:"speaker_character_id"`
+	ListenerCharacterID uuid.NullUUID      `json:"listener_character_id"`
+	Dialogue            string             `json:"dialogue"`
+	SpeakerAction       string             `json:"speaker_action"`
+	ListenerAction      string             `json:"listener_action"`
+	Camera              string             `json:"camera"`
+	Environment         string             `json:"environment"`
+	ProductPlacement    string             `json:"product_placement"`
+	ExpectedCostUsd     pgtype.Numeric     `json:"expected_cost_usd"`
+	SeedancePrompt      string             `json:"seedance_prompt"`
+	SceneHash           string             `json:"scene_hash"`
+	ChangeSummary       string             `json:"change_summary"`
+	CreatedBy           uuid.NullUUID      `json:"created_by"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+}
+
+type Script struct {
+	ID             uuid.UUID             `json:"id"`
+	CampaignID     uuid.UUID             `json:"campaign_id"`
+	ClientID       uuid.UUID             `json:"client_id"`
+	WorkspaceID    uuid.UUID             `json:"workspace_id"`
+	Status         PlanningContentStatus `json:"status"`
+	CurrentVersion int32                 `json:"current_version"`
+	ScriptHash     string                `json:"script_hash"`
+	Version        int64                 `json:"version"`
+	ApprovedAt     pgtype.Timestamptz    `json:"approved_at"`
+	ApprovedBy     uuid.NullUUID         `json:"approved_by"`
+	CreatedBy      uuid.NullUUID         `json:"created_by"`
+	UpdatedBy      uuid.NullUUID         `json:"updated_by"`
+	CreatedAt      pgtype.Timestamptz    `json:"created_at"`
+	UpdatedAt      pgtype.Timestamptz    `json:"updated_at"`
+}
+
+type ScriptDialogueTurn struct {
+	ID                  uuid.UUID `json:"id"`
+	ScriptVersionID     uuid.UUID `json:"script_version_id"`
+	TurnOrder           int32     `json:"turn_order"`
+	CharacterRole       string    `json:"character_role"`
+	Dialogue            string    `json:"dialogue"`
+	EstimatedDurationMs int64     `json:"estimated_duration_ms"`
+}
+
+type ScriptVersion struct {
+	ID                         uuid.UUID          `json:"id"`
+	ScriptID                   uuid.UUID          `json:"script_id"`
+	Version                    int32              `json:"version"`
+	Hook                       string             `json:"hook"`
+	Introduction               string             `json:"introduction"`
+	Problem                    string             `json:"problem"`
+	ProductSolution            string             `json:"product_solution"`
+	ProductFeatures            []string           `json:"product_features"`
+	Benefits                   []string           `json:"benefits"`
+	Cta                        string             `json:"cta"`
+	Closing                    string             `json:"closing"`
+	ApproximateDurationSeconds int32              `json:"approximate_duration_seconds"`
+	CharacterRoles             []byte             `json:"character_roles"`
+	SpokenLanguage             string             `json:"spoken_language"`
+	ScriptHash                 string             `json:"script_hash"`
+	PromptVersion              string             `json:"prompt_version"`
+	Model                      string             `json:"model"`
+	ChangeSummary              string             `json:"change_summary"`
+	CreatedBy                  uuid.NullUUID      `json:"created_by"`
+	CreatedAt                  pgtype.Timestamptz `json:"created_at"`
+}
+
 type Session struct {
 	ID             uuid.UUID          `json:"id"`
 	InternalUserID uuid.UUID          `json:"internal_user_id"`
@@ -214,6 +2748,163 @@ type Session struct {
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 }
 
+type SocialAccount struct {
+	ID                  uuid.UUID            `json:"id"`
+	ConnectionID        uuid.UUID            `json:"connection_id"`
+	ClientID            uuid.UUID            `json:"client_id"`
+	WorkspaceID         uuid.UUID            `json:"workspace_id"`
+	Platform            SocialPlatform       `json:"platform"`
+	ProviderAccountID   string               `json:"provider_account_id"`
+	FacebookPageID      *string              `json:"facebook_page_id"`
+	InstagramBusinessID *string              `json:"instagram_business_id"`
+	Name                string               `json:"name"`
+	Username            *string              `json:"username"`
+	PictureUrl          *string              `json:"picture_url"`
+	Tasks               []string             `json:"tasks"`
+	TokenCiphertext     []byte               `json:"token_ciphertext"`
+	TokenNonce          []byte               `json:"token_nonce"`
+	Status              MetaConnectionStatus `json:"status"`
+	LastDiscoveredAt    pgtype.Timestamptz   `json:"last_discovered_at"`
+	DisconnectedAt      pgtype.Timestamptz   `json:"disconnected_at"`
+	Version             int64                `json:"version"`
+	CreatedAt           pgtype.Timestamptz   `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz   `json:"updated_at"`
+}
+
+type SocialPost struct {
+	ID                uuid.UUID          `json:"id"`
+	ClientID          uuid.UUID          `json:"client_id"`
+	WorkspaceID       uuid.UUID          `json:"workspace_id"`
+	CampaignID        uuid.UUID          `json:"campaign_id"`
+	SocialAccountID   uuid.UUID          `json:"social_account_id"`
+	Platform          SocialPlatform     `json:"platform"`
+	MediaAssetID      uuid.UUID          `json:"media_asset_id"`
+	Caption           string             `json:"caption"`
+	ScheduledAt       pgtype.Timestamptz `json:"scheduled_at"`
+	IdempotencyKey    string             `json:"idempotency_key"`
+	Status            SocialPostStatus   `json:"status"`
+	ContentHash       string             `json:"content_hash"`
+	ProviderPostID    *string            `json:"provider_post_id"`
+	PublicUrl         *string            `json:"public_url"`
+	ProviderRequestID *string            `json:"provider_request_id"`
+	ErrorCategory     *string            `json:"error_category"`
+	ErrorCode         *string            `json:"error_code"`
+	ErrorMessage      *string            `json:"error_message"`
+	PublishedAt       pgtype.Timestamptz `json:"published_at"`
+	ReviewedAt        pgtype.Timestamptz `json:"reviewed_at"`
+	ReviewedBy        uuid.NullUUID      `json:"reviewed_by"`
+	ReviewNotes       string             `json:"review_notes"`
+	Version           int64              `json:"version"`
+	CreatedBy         uuid.UUID          `json:"created_by"`
+	UpdatedBy         uuid.UUID          `json:"updated_by"`
+	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt         pgtype.Timestamptz `json:"updated_at"`
+}
+
+type SocialPostMetricsDaily struct {
+	SocialPostID     uuid.UUID          `json:"social_post_id"`
+	MetricDate       pgtype.Date        `json:"metric_date"`
+	Views            int64              `json:"views"`
+	Reach            int64              `json:"reach"`
+	Impressions      int64              `json:"impressions"`
+	WatchTimeMs      int64              `json:"watch_time_ms"`
+	Likes            int64              `json:"likes"`
+	Comments         int64              `json:"comments"`
+	Shares           int64              `json:"shares"`
+	Saves            int64              `json:"saves"`
+	LinkClicks       int64              `json:"link_clicks"`
+	ProviderResponse []byte             `json:"provider_response"`
+	SyncedAt         pgtype.Timestamptz `json:"synced_at"`
+}
+
+type SubtitleOutput struct {
+	ID             uuid.UUID          `json:"id"`
+	RenderJobID    uuid.UUID          `json:"render_job_id"`
+	Format         SubtitleFormat     `json:"format"`
+	Language       string             `json:"language"`
+	StorageKey     string             `json:"storage_key"`
+	ChecksumSha256 string             `json:"checksum_sha256"`
+	CueCount       int32              `json:"cue_count"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type UsageLedger struct {
+	ID                     uuid.UUID          `json:"id"`
+	Provider               string             `json:"provider"`
+	Model                  string             `json:"model"`
+	RequestReference       string             `json:"request_reference"`
+	Operation              string             `json:"operation"`
+	ClientID               uuid.NullUUID      `json:"client_id"`
+	WorkspaceID            uuid.NullUUID      `json:"workspace_id"`
+	CampaignID             uuid.NullUUID      `json:"campaign_id"`
+	SceneID                uuid.NullUUID      `json:"scene_id"`
+	VideoProjectID         uuid.NullUUID      `json:"video_project_id"`
+	InputUnits             int64              `json:"input_units"`
+	OutputUnits            int64              `json:"output_units"`
+	GeneratedSeconds       pgtype.Numeric     `json:"generated_seconds"`
+	AcceptedSeconds        pgtype.Numeric     `json:"accepted_seconds"`
+	ProviderReportedCost   pgtype.Numeric     `json:"provider_reported_cost"`
+	EstimatedCost          pgtype.Numeric     `json:"estimated_cost"`
+	Currency               string             `json:"currency"`
+	ExchangeRateSnapshotID uuid.NullUUID      `json:"exchange_rate_snapshot_id"`
+	Outcome                UsageOutcome       `json:"outcome"`
+	Reused                 bool               `json:"reused"`
+	Metadata               []byte             `json:"metadata"`
+	OccurredAt             pgtype.Timestamptz `json:"occurred_at"`
+}
+
+type VideoOutput struct {
+	RenderJobID    uuid.UUID          `json:"render_job_id"`
+	MediaAssetID   uuid.UUID          `json:"media_asset_id"`
+	Width          int32              `json:"width"`
+	Height         int32              `json:"height"`
+	Fps            int32              `json:"fps"`
+	DurationMs     int64              `json:"duration_ms"`
+	Codec          string             `json:"codec"`
+	AudioCodec     *string            `json:"audio_codec"`
+	FileSizeBytes  int64              `json:"file_size_bytes"`
+	ChecksumSha256 string             `json:"checksum_sha256"`
+	Metadata       []byte             `json:"metadata"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+type VideoProject struct {
+	ID                  uuid.UUID          `json:"id"`
+	ClientID            uuid.UUID          `json:"client_id"`
+	WorkspaceID         uuid.UUID          `json:"workspace_id"`
+	CampaignID          uuid.UUID          `json:"campaign_id"`
+	CurrentVersion      int32              `json:"current_version"`
+	SelectedRenderJobID uuid.NullUUID      `json:"selected_render_job_id"`
+	MusicAssetID        uuid.NullUUID      `json:"music_asset_id"`
+	MusicGainDb         pgtype.Numeric     `json:"music_gain_db"`
+	DialogueDuckingDb   pgtype.Numeric     `json:"dialogue_ducking_db"`
+	Version             int64              `json:"version"`
+	CreatedBy           uuid.UUID          `json:"created_by"`
+	UpdatedBy           uuid.UUID          `json:"updated_by"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
+}
+
+type VideoProjectVersion struct {
+	ID               uuid.UUID          `json:"id"`
+	VideoProjectID   uuid.UUID          `json:"video_project_id"`
+	Version          int32              `json:"version"`
+	Headline         string             `json:"headline"`
+	LowerThird       string             `json:"lower_third"`
+	ShowPrice        bool               `json:"show_price"`
+	ShowDiscountCode bool               `json:"show_discount_code"`
+	ShowCta          bool               `json:"show_cta"`
+	ShowWebsite      bool               `json:"show_website"`
+	ShowPhone        bool               `json:"show_phone"`
+	ShowQrCode       bool               `json:"show_qr_code"`
+	ShowDisclaimer   bool               `json:"show_disclaimer"`
+	BurnCaptions     bool               `json:"burn_captions"`
+	ProjectHash      string             `json:"project_hash"`
+	ChangeSummary    string             `json:"change_summary"`
+	CreatedBy        uuid.UUID          `json:"created_by"`
+	CreatedAt        pgtype.Timestamptz `json:"created_at"`
+}
+
 type WebhookEvent struct {
 	ID               uuid.UUID          `json:"id"`
 	Provider         string             `json:"provider"`
@@ -226,4 +2917,20 @@ type WebhookEvent struct {
 	ProcessedAt      pgtype.Timestamptz `json:"processed_at"`
 	ProcessingError  *string            `json:"processing_error"`
 	AttemptCount     int32              `json:"attempt_count"`
+}
+
+type Workspace struct {
+	ID                  uuid.UUID          `json:"id"`
+	ClientID            uuid.UUID          `json:"client_id"`
+	Name                string             `json:"name"`
+	Slug                string             `json:"slug"`
+	Timezone            string             `json:"timezone"`
+	Status              LifecycleStatus    `json:"status"`
+	FutureTenantOwnerID *string            `json:"future_tenant_owner_id"`
+	Version             int64              `json:"version"`
+	ArchivedAt          pgtype.Timestamptz `json:"archived_at"`
+	CreatedBy           uuid.UUID          `json:"created_by"`
+	UpdatedBy           uuid.UUID          `json:"updated_by"`
+	CreatedAt           pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt           pgtype.Timestamptz `json:"updated_at"`
 }

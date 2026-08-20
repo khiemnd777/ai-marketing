@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"net/url"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -38,12 +39,17 @@ func (h *Handler) ProviderStatus(c fiber.Ctx) error {
 		"demoMode": h.config.DemoMode,
 		"providers": []fiber.Map{
 			{"name": "openai", "configured": h.config.OpenAI.Validate() == nil, "model": h.config.OpenAI.Model, "baseUrl": safeHost(h.config.OpenAI.BaseURL)},
-			{"name": "seedance", "configured": h.config.Seedance.APIKey != "" && h.config.Seedance.BaseURL != "" && h.config.Seedance.Model != "", "model": h.config.Seedance.Model, "apiVersion": h.config.Seedance.APIVersion, "baseUrl": safeHost(h.config.Seedance.BaseURL)},
+			{"name": "seedance", "configured": h.config.Seedance.Validate() == nil, "model": h.config.Seedance.Model, "apiVersion": h.config.Seedance.APIVersion, "baseUrl": safeHost(h.config.Seedance.BaseURL)},
 			{"name": "r2", "configured": h.config.R2.Validate() == nil, "bucket": h.config.R2.Bucket, "baseUrl": safeHost(h.config.R2.Endpoint)},
-			{"name": "meta", "configured": h.config.Meta.AppID != "" && h.config.Meta.AppSecret != "" && h.config.Meta.APIVersion != "", "apiVersion": h.config.Meta.APIVersion},
-			{"name": "renderer", "configured": h.config.Renderer.BaseURL != "" && h.config.Renderer.SharedSecret != "", "baseUrl": safeHost(h.config.Renderer.BaseURL)},
+			{"name": "meta", "configured": h.config.Meta.Validate() == nil, "apiVersion": h.config.Meta.APIVersion, "baseUrl": safeHost(h.config.Meta.GraphBaseURL)},
+			{"name": "renderer", "configured": rendererConfigured(h.config.Renderer), "baseUrl": safeHost(h.config.Renderer.BaseURL)},
 		},
 	})
+}
+
+func rendererConfigured(cfg config.RendererConfig) bool {
+	parsed, err := url.Parse(cfg.BaseURL)
+	return err == nil && parsed.Scheme != "" && parsed.Host != "" && len(cfg.SharedSecret) >= 32
 }
 
 func safeHost(value string) string {

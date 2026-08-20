@@ -1,3 +1,5 @@
+@import "@uppy/core/css/style.min.css";
+@import "@uppy/dashboard/css/style.min.css";
 @import "tailwindcss";
 
 :root {
@@ -8,7 +10,7 @@
   --lime: #cbe55d;
   --coral: #f26c4f;
   --gold: #e1aa32;
-  --muted: #6f786f;
+  --muted: #657066;
   --line: #dce0d6;
 }
 
@@ -26,3 +28,41 @@ body {
 }
 button, input, select, textarea { font: inherit; }
 ::selection { background: var(--lime); color: var(--ink); }
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--moss);
+  outline-offset: 3px;
+}
+
+:where(button, [role="button"]):not(:disabled) { cursor: pointer; }
+
+.skip-link {
+  position: fixed;
+  z-index: 100;
+  left: 1rem;
+  top: 1rem;
+  transform: translateY(-200%);
+  border-radius: 0.75rem;
+  background: var(--ink);
+  color: white;
+  padding: 0.75rem 1rem;
+  font-weight: 700;
+}
+.skip-link:focus { transform: translateY(0); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.uppy-Dashboard-inner {
+  border: 0;
+  border-radius: 0;
+  background: var(--panel);
+}
+.uppy-Dashboard-AddFiles-title { color: var(--ink); }
+.uppy-Dashboard-browse { color: var(--moss); }

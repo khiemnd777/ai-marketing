@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/config"
@@ -55,6 +57,56 @@ func TestMetaPermissionFailureIsNormalized(t *testing.T) {
 	}
 }
 
+func TestMetaProviderFailureMatrix(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		status    int
+		body      string
+		category  string
+		retryable bool
+	}{
+		{"authentication", http.StatusUnauthorized, `{"error":{"code":190,"message":"raw token detail"}}`, "AUTH", false},
+		{"permission", http.StatusForbidden, `{"error":{"code":200,"message":"raw permission detail"}}`, "PERMISSION", false},
+		{"rate-limit", http.StatusTooManyRequests, `{"error":{"code":4,"message":"raw quota detail"}}`, "TRANSIENT", true},
+		{"outage", http.StatusBadGateway, `{"error":{"code":2,"message":"raw outage detail"}}`, "TRANSIENT", true},
+		{"invalid-success-json", http.StatusOK, `{not-json`, "PROTOCOL", false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			provider, err := NewLiveProvider(config.MetaConfig{AppID: "app", AppSecret: "secret", APIVersion: "v99.0", RedirectURL: "https://studio.example/meta/callback", GraphBaseURL: "https://graph.test", DialogBaseURL: "https://dialog.test"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			provider.client = &http.Client{Transport: metaRoundTripFunc(func(_ *http.Request) (*http.Response, error) {
+				return &http.Response{StatusCode: test.status, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(test.body))}, nil
+			})}
+			_, err = provider.CreatePausedCampaign(context.Background(), CampaignRequest{AdAccountID: "123", Name: "Launch", Objective: "OUTCOME_TRAFFIC", BuyingType: "AUCTION", AccessToken: "page-token"})
+			var providerError *ProviderError
+			if !errors.As(err, &providerError) || providerError.Category != test.category || providerError.Retryable != test.retryable {
+				t.Fatalf("category=%v retryable=%v err=%v", providerError, test.retryable, err)
+			}
+			if strings.Contains(err.Error(), "raw ") {
+				t.Fatalf("provider detail leaked: %v", err)
+			}
+		})
+	}
+}
+
+func TestMetaNetworkFailureIsRetryable(t *testing.T) {
+	t.Parallel()
+	provider, err := NewLiveProvider(config.MetaConfig{AppID: "app", AppSecret: "secret", APIVersion: "v99.0", RedirectURL: "https://studio.example/meta/callback", GraphBaseURL: "https://graph.test", DialogBaseURL: "https://dialog.test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.client = &http.Client{Transport: metaRoundTripFunc(func(_ *http.Request) (*http.Response, error) { return nil, context.DeadlineExceeded })}
+	_, err = provider.CreatePausedCampaign(context.Background(), CampaignRequest{AdAccountID: "123", Name: "Launch", Objective: "OUTCOME_TRAFFIC", BuyingType: "AUCTION", AccessToken: "page-token"})
+	var providerError *ProviderError
+	if !errors.As(err, &providerError) || providerError.Category != "NETWORK" || !providerError.Retryable {
+		t.Fatalf("unexpected network classification: %#v / %v", providerError, err)
+	}
+}
+
 func TestInstagramPublishingUsesContainerThenPublish(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -85,4 +137,10 @@ func TestInstagramPublishingUsesContainerThenPublish(t *testing.T) {
 	if err != nil || result.ProviderPostID != "post-1" || result.PublicURL == "" || requests != 4 {
 		t.Fatalf("result=%#v requests=%d error=%v", result, requests, err)
 	}
+}
+
+type metaRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function metaRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
 }

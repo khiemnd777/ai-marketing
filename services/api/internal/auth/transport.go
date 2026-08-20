@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
 
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/gen/db"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/problem"
@@ -26,6 +27,21 @@ type Handler struct {
 type loginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+}
+
+type changePasswordRequest struct {
+	CurrentPassword string `json:"currentPassword"`
+	NewPassword     string `json:"newPassword"`
+}
+
+type sessionResponse struct {
+	ID         string    `json:"id"`
+	IPAddress  string    `json:"ipAddress"`
+	UserAgent  string    `json:"userAgent"`
+	ExpiresAt  time.Time `json:"expiresAt"`
+	LastSeenAt time.Time `json:"lastSeenAt"`
+	CreatedAt  time.Time `json:"createdAt"`
+	Current    bool      `json:"current"`
 }
 
 type UserResponse struct {
@@ -94,6 +110,68 @@ func (h *Handler) Logout(c fiber.Ctx) error {
 		return problem.Write(c, fiber.StatusInternalServerError, "internal", "Không thể đăng xuất", "Hệ thống chưa thể thu hồi phiên đăng nhập.")
 	}
 	h.clearSessionCookies(c)
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func (h *Handler) ChangePassword(c fiber.Ctx) error {
+	principal, ok := PrincipalFrom(c)
+	if !ok {
+		return problem.Write(c, fiber.StatusUnauthorized, "unauthenticated", "Cần đăng nhập", "Phiên đăng nhập không hợp lệ hoặc đã hết hạn.")
+	}
+	var input changePasswordRequest
+	if err := c.Bind().Body(&input); err != nil {
+		return problem.Write(c, fiber.StatusBadRequest, "invalid-request", "Yêu cầu không hợp lệ", "Nội dung đổi mật khẩu phải là JSON hợp lệ.")
+	}
+	if err := h.service.ChangePassword(c.Context(), principal, input.CurrentPassword, input.NewPassword, metadataFrom(c)); err != nil {
+		switch {
+		case errors.Is(err, ErrInvalidPassword):
+			return problem.Write(c, fiber.StatusUnprocessableEntity, "invalid-password", "Mật khẩu hiện tại không đúng", "Kiểm tra lại mật khẩu hiện tại.", problem.FieldError{Field: "currentPassword", Code: "invalid", Message: "Mật khẩu hiện tại không đúng"})
+		case errors.Is(err, ErrPasswordPolicy):
+			return problem.Write(c, fiber.StatusUnprocessableEntity, "password-policy", "Mật khẩu mới không hợp lệ", "Mật khẩu mới phải có từ 14 đến 200 ký tự và khác mật khẩu hiện tại.", problem.FieldError{Field: "newPassword", Code: "policy", Message: "Dùng mật khẩu mới từ 14 đến 200 ký tự"})
+		case errors.Is(err, ErrConflict):
+			return problem.Write(c, fiber.StatusConflict, "stale-user", "Tài khoản đã thay đổi", "Tải lại trang và thử lại.")
+		default:
+			return problem.Write(c, fiber.StatusInternalServerError, "internal", "Không thể đổi mật khẩu", "Hệ thống chưa thể cập nhật mật khẩu.")
+		}
+	}
+	return c.SendStatus(fiber.StatusNoContent)
+}
+
+func (h *Handler) ListSessions(c fiber.Ctx) error {
+	principal, ok := PrincipalFrom(c)
+	if !ok {
+		return problem.Write(c, fiber.StatusUnauthorized, "unauthenticated", "Cần đăng nhập", "Phiên đăng nhập không hợp lệ hoặc đã hết hạn.")
+	}
+	items, err := h.service.ListSessions(c.Context(), principal)
+	if err != nil {
+		return problem.Write(c, fiber.StatusInternalServerError, "internal", "Không thể tải phiên", "Hệ thống chưa thể đọc danh sách phiên đăng nhập.")
+	}
+	response := make([]sessionResponse, 0, len(items))
+	for _, item := range items {
+		response = append(response, sessionResponse{ID: item.ID.String(), IPAddress: item.IPAddress, UserAgent: item.UserAgent, ExpiresAt: item.ExpiresAt, LastSeenAt: item.LastSeenAt, CreatedAt: item.CreatedAt, Current: item.Current})
+	}
+	return c.JSON(fiber.Map{"items": response})
+}
+
+func (h *Handler) RevokeSession(c fiber.Ctx) error {
+	principal, ok := PrincipalFrom(c)
+	if !ok {
+		return problem.Write(c, fiber.StatusUnauthorized, "unauthenticated", "Cần đăng nhập", "Phiên đăng nhập không hợp lệ hoặc đã hết hạn.")
+	}
+	sessionID, err := uuid.Parse(c.Params("sessionId"))
+	if err != nil {
+		return problem.Write(c, fiber.StatusBadRequest, "invalid-id", "ID phiên không hợp lệ", "Session ID phải là UUID hợp lệ.")
+	}
+	current, err := h.service.RevokeOwnSession(c.Context(), principal, sessionID, metadataFrom(c))
+	if errors.Is(err, ErrSessionNotFound) {
+		return problem.Write(c, fiber.StatusNotFound, "session-not-found", "Không tìm thấy phiên", "Phiên không tồn tại, đã hết hạn hoặc đã bị thu hồi.")
+	}
+	if err != nil {
+		return problem.Write(c, fiber.StatusInternalServerError, "internal", "Không thể thu hồi phiên", "Hệ thống chưa thể thu hồi phiên đăng nhập.")
+	}
+	if current {
+		h.clearSessionCookies(c)
+	}
 	return c.SendStatus(fiber.StatusNoContent)
 }
 
@@ -171,6 +249,17 @@ func RequireRole(roles ...db.InternalUserRole) fiber.Handler {
 		}
 		return c.Next()
 	}
+}
+
+func RequirePasswordChangeCleared(c fiber.Ctx) error {
+	principal, ok := PrincipalFrom(c)
+	if !ok {
+		return problem.Write(c, fiber.StatusUnauthorized, "unauthenticated", "Cần đăng nhập", "Phiên đăng nhập không hợp lệ hoặc đã hết hạn.")
+	}
+	if principal.RequiresPasswordChange {
+		return problem.Write(c, fiber.StatusPreconditionRequired, "password-change-required", "Cần đổi mật khẩu", "Đổi mật khẩu tạm thời trước khi tiếp tục sử dụng hệ thống.")
+	}
+	return c.Next()
 }
 
 func PrincipalFrom(c fiber.Ctx) (Principal, bool) {

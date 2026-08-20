@@ -103,6 +103,41 @@ func (h *Handler) Download(c fiber.Ctx) error {
 	}
 	return c.JSON(v)
 }
+func (h *Handler) Update(c fiber.Ctx) error {
+	a, b, id, e := scope(c, "assetId")
+	if e != nil {
+		return out(c, e)
+	}
+	var input UpdateInput
+	if c.Bind().Body(&input) != nil {
+		return out(c, ErrInvalid)
+	}
+	actor, _ := auth.PrincipalFrom(c)
+	asset, e := h.service.Update(c.Context(), a, b, id, actor.UserID, input)
+	if e != nil {
+		return out(c, e)
+	}
+	return c.JSON(asset)
+}
+func (h *Handler) SetStatus(c fiber.Ctx) error {
+	a, b, id, e := scope(c, "assetId")
+	if e != nil {
+		return out(c, e)
+	}
+	var input struct {
+		Status  string `json:"status"`
+		Version int64  `json:"version"`
+	}
+	if c.Bind().Body(&input) != nil {
+		return out(c, ErrInvalid)
+	}
+	actor, _ := auth.PrincipalFrom(c)
+	asset, e := h.service.SetStatus(c.Context(), a, b, id, actor.UserID, input.Status, input.Version)
+	if e != nil {
+		return out(c, e)
+	}
+	return c.JSON(asset)
+}
 func (h *Handler) Delete(c fiber.Ctx) error {
 	a, b, id, e := scope(c, "assetId")
 	if e != nil {

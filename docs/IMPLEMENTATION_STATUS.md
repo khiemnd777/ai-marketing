@@ -4,7 +4,18 @@ Last updated: 2026-08-20
 
 ## Current state
 
-Milestones 0 through 6 are complete. The starting directory was empty except for a local secret file; no existing application, documentation, migrations, tests, or Git history existed.
+Milestones 0 through 6 and acceptance hardening gates 1 through 5 are complete. Gate 6 is implementation-complete and ready for the required credentialed staging sign-off; that external release gate is not represented as having run locally.
+
+## Phase 1 acceptance hardening
+
+| Gate | Status | Validation evidence |
+| --- | --- | --- |
+| 1 — Release blockers and browser smoke | Complete | The OpenAPI fetch wrapper now preserves `Request` method/body/headers and attaches CSRF correctly; `/api/studio` uses a runtime proxy instead of a build-time rewrite; Atlas checksums validate and all 8 migrations/180 statements replayed on clean PostgreSQL 18; the analytics recommendation route matches OpenAPI; production Next build and Playwright login → client → CSRF mutation → workspace → recommendation smoke passed. |
+| 2 — Auth lifecycle and workspace context | Complete | Admin-managed reset/disable/reactivate revokes sessions and uses optimistic versions; forced password change blocks business routes; users can inspect/revoke their sessions; server-side auth gating prevents shell flash; global client/workspace scope persists in URL and local storage; navigation and primary actions follow Admin/Operator/Reviewer permissions. Production build and Playwright auth lifecycle passed. |
+| 3 — Composer and Quality workflow | Complete | Added dedicated `/quality` and `/composer` workbenches. Quality aggregates transcript, deterministic checks, findings, human checklist, scene/final review and take selection. Composer adds accessible dnd-kit ordering, signed inline preview, named media selectors, non-destructive scene edits, autosave/dirty protection and render readiness. Legacy `/final` remains compatible. Unit tests, production build and Playwright route smoke passed. |
+| 4 — Media Library | Complete | Replaced the form uploader with an Uppy queue that persists selection/session state, resumes confirmed multipart parts, retries object-store writes, and verifies completion server-side. Added signed previews, search/type/status filters, folder/tags/rights/expiry editing, optimistic review/archive actions, role-aware controls, scoped upload validation, retry-safe completion, and multipart cleanup on failed session persistence. Go media/storage tests, OpenAPI generation, strict web checks, production build, and Playwright media route smoke passed. |
+| 5 — QA and CI depth | Complete | CI now runs the full production-proxy browser suite with API and worker, an isolated PostgreSQL 18 Testcontainers workflow, renderer plan golden coverage and production-container readiness, plus OpenAI/Meta/Seedance auth, rate-limit, outage, moderation, timeout, protocol, and malformed-output failure matrices. The final local run passed 5 Playwright journeys, the full Go race suite, all JS tests/builds, and OpenAPI drift checks. |
+| 6 — Accessibility, responsive UX, and live certification | Ready for staging | Added automated axe WCAG A/AA checks, corrected contrast tokens, global keyboard focus and reduced-motion behavior, skip navigation, and a responsive 44px-target drawer with focus containment/restoration, Escape, backdrop, and overflow checks. The read-only no-spend certification harness validates TLS, API/database/web/renderer readiness, Admin session cleanup, live mode, and all provider configurations; it correctly failed closed against local demo mode. Actual provider credential/workflow certification requires the documented authorized staging credentials and spend window. |
 
 ## Milestones
 
@@ -34,6 +45,13 @@ Milestones 0 through 6 are complete. The starting directory was empty except for
 - Remotion's official license page classifies automated video applications under its Company/Automators licensing. Production release therefore requires an active license when the organization is outside the free-license terms; all Remotion packages are pinned to 4.0.513.
 
 ## Validation log
+
+### Phase 1 acceptance hardening — 2026-08-20
+
+- Replayed all Atlas migrations and River migrations on clean PostgreSQL 18, then passed the isolated Testcontainers workflow on the final tree.
+- Passed all 5 production-proxy Playwright tests in one serial run: accessibility desktop/mobile, auth lifecycle and session revocation, Product Truth-to-Quality campaign workflow, and client/workspace/media/analytics/composer smoke.
+- Passed OpenAPI generation drift, every workspace typecheck/lint/test/build, renderer golden tests, `go vet ./...`, and `go test -race ./...` (loopback-dependent provider tests ran outside the macOS sandbox).
+- Ran the live readiness harness against the local demo environment and confirmed the expected fail-closed result: `DEMO_MODE=true`. No paid or live provider operation was executed.
 
 ### Milestone 0 — 2026-08-20
 

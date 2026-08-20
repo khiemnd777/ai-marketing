@@ -14,7 +14,7 @@ const schema = z.object({
 });
 type LoginValues = z.infer<typeof schema>;
 
-export function LoginForm() {
+export function LoginForm({ returnUrl = "/clients" }: { returnUrl?: string }) {
   const router = useRouter();
   const form = useForm<LoginValues>({ resolver: zodResolver(schema), defaultValues: { email: "", password: "" } });
   const login = useMutation({
@@ -23,8 +23,11 @@ export function LoginForm() {
       if (error || !data) throw new Error(error?.detail ?? "Không thể đăng nhập. Vui lòng thử lại.");
       return data;
     },
-    onSuccess: () => {
-      router.replace("/clients");
+    onSuccess: (user) => {
+      const destination = user.requiresPasswordChange
+        ? `/account/password?returnUrl=${encodeURIComponent(returnUrl)}`
+        : returnUrl;
+      router.replace(destination);
       router.refresh();
     },
   });

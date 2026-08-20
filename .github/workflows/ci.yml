@@ -26,6 +26,7 @@ jobs:
           node-version: 24
       - run: bun install --frozen-lockfile
       - run: bun run openapi:check
+      - run: node --check scripts/certify-live-readiness.mjs
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run test
@@ -47,6 +48,23 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  database-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: services/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.7
+          cache-dependency-path: services/api/go.sum
+      - name: Run isolated PostgreSQL 18 workflow
+        env:
+          STUDIO_USE_TESTCONTAINERS: "true"
+        run: go test ./internal/planning -run TestDemoPlanningWorkflowIntegration -count=1 -v
 
   migrations:
     runs-on: ubuntu-latest
@@ -81,10 +99,103 @@ jobs:
         working-directory: services/api
         env:
           DATABASE_URL: postgres://studio:studio@localhost:5432/studio?sslmode=disable
-      - run: go test ./internal/planning -run TestDemoPlanningWorkflowIntegration -count=1 -v
-        working-directory: services/api
+
+  browser-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18.4-alpine
         env:
-          STUDIO_INTEGRATION_DATABASE_URL: postgres://studio:studio@localhost:5432/studio?sslmode=disable
+          POSTGRES_USER: studio
+          POSTGRES_PASSWORD: studio
+          POSTGRES_DB: studio_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U studio -d studio_e2e"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      APP_ENV: development
+      APP_URL: http://127.0.0.1:3000
+      API_URL: http://127.0.0.1:8080
+      HTTP_ADDRESS: 127.0.0.1:8080
+      DATABASE_URL: postgres://studio:studio@127.0.0.1:5432/studio_e2e?sslmode=disable
+      SESSION_SECRET: e2e-session-secret-is-at-least-thirty-two-bytes
+      ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      R2_ACCESS_KEY_ID: e2e-access-key
+      R2_SECRET_ACCESS_KEY: e2e-secret-key
+      R2_BUCKET: e2e-media
+      R2_ENDPOINT: http://127.0.0.1:9000
+      RENDERER_BASE_URL: http://127.0.0.1:8090
+      RENDERER_SHARED_SECRET: e2e-renderer-shared-secret
+      DEMO_MODE: "true"
+      BOOTSTRAP_ADMIN_EMAIL: admin-e2e@example.com
+      BOOTSTRAP_ADMIN_NAME: E2E Administrator
+      BOOTSTRAP_ADMIN_PASSWORD: E2E-secure-password-2026
+      STUDIO_TEST_EMAIL: admin-e2e@example.com
+      STUDIO_TEST_PASSWORD: E2E-secure-password-2026
+      STUDIO_WEB_URL: http://127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 1.26.7
+          cache-dependency-path: services/api/go.sum
+      - uses: ariga/setup-atlas@v0
+        with:
+          version: 1.2.0
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - run: atlas migrate apply --url "$DATABASE_URL" --dir file://database/migrations
+      - run: go run ./cmd/migrate-river
+        working-directory: services/api
+      - run: go run ./cmd/bootstrap-admin
+        working-directory: services/api
+      - name: Start API
+        working-directory: services/api
+        run: |
+          go build -o /tmp/studio-api-e2e ./cmd/api
+          /tmp/studio-api-e2e >/tmp/studio-api-e2e.log 2>&1 &
+      - name: Start workflow worker
+        working-directory: services/api
+        run: |
+          go build -o /tmp/studio-worker-e2e ./cmd/worker
+          /tmp/studio-worker-e2e >/tmp/studio-worker-e2e.log 2>&1 &
+      - name: Build and start web
+        run: |
+          bun run --filter @studio/web build
+          bun run --filter @studio/web start >/tmp/studio-web-e2e.log 2>&1 &
+      - name: Wait for application
+        run: |
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:8080/v1/health/ready >/dev/null && curl --fail --silent http://127.0.0.1:3000/login >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/studio-api-e2e.log /tmp/studio-web-e2e.log
+          exit 1
+      - run: bun run test:e2e
+      - name: Upload browser diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-e2e-diagnostics
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            /tmp/studio-api-e2e.log
+            /tmp/studio-worker-e2e.log
+            /tmp/studio-web-e2e.log
 
   containers:
     runs-on: ubuntu-latest
@@ -96,3 +207,22 @@ jobs:
       - run: docker build -f infra/docker/worker.Dockerfile -t studio-worker:test .
       - run: docker build -f infra/docker/web.Dockerfile -t studio-web:test .
       - run: docker build -f infra/docker/renderer.Dockerfile -t studio-renderer:test .
+      - name: Smoke production renderer startup
+        run: |
+          docker run --detach --name studio-renderer-smoke --publish 18090:8090 \
+            --env RENDERER_SHARED_SECRET=renderer-smoke-secret-at-least-32-bytes \
+            --env R2_ACCESS_KEY_ID=smoke-access \
+            --env R2_SECRET_ACCESS_KEY=smoke-secret \
+            --env R2_BUCKET=smoke-media \
+            --env R2_ENDPOINT=http://127.0.0.1:19000 \
+            studio-renderer:test
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:18090/health/ready >/dev/null; then
+              docker rm --force studio-renderer-smoke
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs studio-renderer-smoke
+          docker rm --force studio-renderer-smoke
+          exit 1

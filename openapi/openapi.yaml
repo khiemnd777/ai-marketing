@@ -77,9 +77,46 @@ paths:
                 $ref: '#/components/schemas/InternalUser'
         '401':
           $ref: '#/components/responses/Problem'
+  /auth/change-password:
+    post:
+      operationId: changeCurrentUserPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204': { description: Password changed and all other sessions revoked. }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /auth/sessions:
+    get:
+      operationId: listCurrentUserSessions
+      responses:
+        '200':
+          description: Active sessions for the current user.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/UserSession' } }
+  /auth/sessions/{sessionId}:
+    parameters: [{ $ref: '#/components/parameters/SessionId' }]
+    delete:
+      operationId: revokeCurrentUserSession
+      responses:
+        '204': { description: Session revoked. }
+        '404': { $ref: '#/components/responses/Problem' }
   /internal-users:
     get:
       operationId: listInternalUsers
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
       responses:
         '200':
           description: Internal users visible to admins.
@@ -118,6 +155,36 @@ paths:
           $ref: '#/components/responses/Problem'
         '409':
           $ref: '#/components/responses/Problem'
+  /internal-users/{userId}/reset-password:
+    parameters: [{ $ref: '#/components/parameters/UserId' }]
+    post:
+      operationId: resetInternalUserPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ResetInternalUserPasswordRequest' }
+      responses:
+        '200': { description: Temporary password stored, password change required, and active sessions revoked., content: { application/json: { schema: { $ref: '#/components/schemas/InternalUser' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /internal-users/{userId}/status:
+    parameters: [{ $ref: '#/components/parameters/UserId' }]
+    patch:
+      operationId: setInternalUserStatus
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InternalUserStatusRequest' }
+      responses:
+        '200': { description: Internal user status updated., content: { application/json: { schema: { $ref: '#/components/schemas/InternalUser' } } } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
   /clients:
     get:
       operationId: listClients
@@ -333,11 +400,27 @@ paths:
         '200': { description: Short-lived signed download., content: { application/json: { schema: { $ref: '#/components/schemas/PresignedRequest' } } } }
   /clients/{clientId}/workspaces/{workspaceId}/media-assets/{assetId}:
     parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/AssetId' }]
+    put:
+      operationId: updateMediaAsset
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MediaAssetUpdateInput' } } } }
+      responses:
+        '200': { description: Media metadata updated with an optimistic version., content: { application/json: { schema: { $ref: '#/components/schemas/MediaAsset' } } } }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
     delete:
       operationId: deleteMediaAsset
       requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [version], properties: { version: { type: integer, minimum: 1 } } } } } }
       responses:
         '204': { description: Media asset soft-deleted. }
+  /clients/{clientId}/workspaces/{workspaceId}/media-assets/{assetId}/status:
+    parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/AssetId' }]
+    patch:
+      operationId: setMediaAssetStatus
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MediaAssetStatusInput' } } } }
+      responses:
+        '200': { description: Media review status updated., content: { application/json: { schema: { $ref: '#/components/schemas/MediaAsset' } } } }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
   /clients/{clientId}/workspaces/{workspaceId}/campaigns:
     parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }]
     get:
@@ -822,6 +905,8 @@ components:
     AdCampaignId: { name: adCampaignId, in: path, required: true, schema: { type: string, format: uuid } }
     ActionId: { name: actionId, in: path, required: true, schema: { type: string, format: uuid } }
     RecommendationId: { name: recommendationId, in: path, required: true, schema: { type: string, format: uuid } }
+    UserId: { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+    SessionId: { name: sessionId, in: path, required: true, schema: { type: string, format: uuid } }
     RiverJobId: { name: riverJobId, in: path, required: true, schema: { type: integer, format: int64, minimum: 1 } }
     JobId: { name: jobId, in: path, required: true, schema: { type: string, format: uuid } }
     IdempotencyKey:
@@ -1992,6 +2077,25 @@ components:
         tags: { type: array, items: { type: string, maxLength: 80 }, default: [] }
         expiresAt: { type: [string, 'null'], format: date-time }
         temporaryUntil: { type: [string, 'null'], format: date-time }
+    MediaAssetUpdateInput:
+      type: object
+      additionalProperties: false
+      required: [category, name, folder, usageRights, tags, expiresAt, version]
+      properties:
+        category: { type: string, maxLength: 120 }
+        name: { type: string, minLength: 1, maxLength: 240 }
+        folder: { type: string, maxLength: 500 }
+        usageRights: { type: string, minLength: 1, maxLength: 4000 }
+        tags: { type: array, uniqueItems: true, items: { type: string, minLength: 1, maxLength: 80 } }
+        expiresAt: { type: [string, 'null'], format: date-time }
+        version: { type: integer, minimum: 1 }
+    MediaAssetStatusInput:
+      type: object
+      additionalProperties: false
+      required: [status, version]
+      properties:
+        status: { $ref: '#/components/schemas/ContentStatus' }
+        version: { type: integer, minimum: 1 }
     MediaAsset:
       type: object
       required: [id, clientId, workspaceId, assetType, category, name, folder, status, usageRights, tags, version, createdAt, updatedAt]
@@ -2089,7 +2193,7 @@ components:
     InternalUser:
       type: object
       additionalProperties: false
-      required: [id, email, displayName, role, status, createdAt, updatedAt]
+      required: [id, email, displayName, role, status, requiresPasswordChange, version, createdAt, updatedAt]
       properties:
         id:
           type: string
@@ -2116,6 +2220,9 @@ components:
           format: date-time
         requiresPasswordChange:
           type: boolean
+        version:
+          type: integer
+          minimum: 1
     CreateInternalUserRequest:
       type: object
       additionalProperties: false
@@ -2136,6 +2243,39 @@ components:
           type: string
           minLength: 14
           maxLength: 200
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword: { type: string, minLength: 10, maxLength: 200 }
+        newPassword: { type: string, minLength: 14, maxLength: 200 }
+    ResetInternalUserPasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [temporaryPassword, version]
+      properties:
+        temporaryPassword: { type: string, minLength: 14, maxLength: 200 }
+        version: { type: integer, minimum: 1 }
+    InternalUserStatusRequest:
+      type: object
+      additionalProperties: false
+      required: [status, version]
+      properties:
+        status: { type: string, enum: [ACTIVE, DISABLED] }
+        version: { type: integer, minimum: 1 }
+    UserSession:
+      type: object
+      additionalProperties: false
+      required: [id, ipAddress, userAgent, expiresAt, lastSeenAt, createdAt, current]
+      properties:
+        id: { type: string, format: uuid }
+        ipAddress: { type: string }
+        userAgent: { type: string, maxLength: 1000 }
+        expiresAt: { type: string, format: date-time }
+        lastSeenAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        current: { type: boolean }
     PageMeta:
       type: object
       required: [number, size, totalItems, totalPages]

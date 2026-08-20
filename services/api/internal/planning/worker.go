@@ -43,12 +43,18 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.AIPlanningArgs]) 
 			return
 		}
 		message := workErr.Error()
+		errorCode := "generation_failed"
+		var providerError *studioai.ProviderError
+		if errors.As(workErr, &providerError) {
+			errorCode = providerError.Code
+			message = providerError.SafeMessage
+		}
 		if len(message) > 500 {
 			message = message[:500]
 		}
-		_, _ = w.Pool.Exec(context.WithoutCancel(ctx), `UPDATE generation_jobs SET status='FAILED',error_code='generation_failed',error_message=$2,completed_at=now() WHERE id=$1 AND status='RUNNING'`, job.Args.GenerationJobID, message)
+		_, _ = w.Pool.Exec(context.WithoutCancel(ctx), `UPDATE generation_jobs SET status='FAILED',error_code=$2,error_message=$3,completed_at=now() WHERE id=$1 AND status='RUNNING'`, job.Args.GenerationJobID, errorCode, message)
 		if requestID != uuid.Nil {
-			_, _ = w.Pool.Exec(context.WithoutCancel(ctx), `UPDATE provider_requests SET status='FAILED',error_code='generation_failed',error_message=$2,completed_at=now(),latency_ms=EXTRACT(EPOCH FROM(now()-started_at))*1000 WHERE id=$1 AND status='PENDING'`, requestID, message)
+			_, _ = w.Pool.Exec(context.WithoutCancel(ctx), `UPDATE provider_requests SET status='FAILED',error_code=$2,error_message=$3,completed_at=now(),latency_ms=EXTRACT(EPOCH FROM(now()-started_at))*1000 WHERE id=$1 AND status='PENDING'`, requestID, errorCode, message)
 		}
 	}()
 
@@ -74,7 +80,7 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.AIPlanningArgs]) 
 	case "CONCEPTS":
 		value, result, callErr := w.Provider.GenerateConcepts(ctx, studioai.ConceptInput{Context: planningContext})
 		if callErr != nil {
-			return callErr
+			return providerFailure(callErr)
 		}
 		if err = studioai.ValidateConcepts(value); err != nil {
 			return river.JobCancel(err)
@@ -83,7 +89,7 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.AIPlanningArgs]) 
 	case "CONTENT":
 		value, result, callErr := w.Provider.GenerateContent(ctx, studioai.ContentInput{Context: planningContext})
 		if callErr != nil {
-			return callErr
+			return providerFailure(callErr)
 		}
 		if err = studioai.ValidateContent(value, planningContext); err != nil {
 			return river.JobCancel(err)
@@ -92,7 +98,7 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.AIPlanningArgs]) 
 	case "SCRIPT":
 		value, result, callErr := w.Provider.GenerateScript(ctx, studioai.ScriptInput{Context: planningContext})
 		if callErr != nil {
-			return callErr
+			return providerFailure(callErr)
 		}
 		if err = studioai.ValidateScript(value, planningContext); err != nil {
 			return river.JobCancel(err)
@@ -112,7 +118,7 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.AIPlanningArgs]) 
 		input := studioai.SceneInput{Context: planningContext, Script: script, SpeakerCharacterID: primaryID, ListenerCharacterID: listenerID}
 		value, result, callErr := w.Provider.GenerateScenes(ctx, input)
 		if callErr != nil {
-			return callErr
+			return providerFailure(callErr)
 		}
 		if err = studioai.ValidateScenes(value, input); err != nil {
 			return river.JobCancel(err)
@@ -122,6 +128,14 @@ func (w *Worker) Work(ctx context.Context, job *river.Job[jobs.AIPlanningArgs]) 
 		return river.JobCancel(ErrInvalid)
 	}
 	return w.persist(ctx, job, requestID, actorID, estimatedCost, output, metadata)
+}
+
+func providerFailure(err error) error {
+	var providerError *studioai.ProviderError
+	if errors.As(err, &providerError) && !providerError.Retryable {
+		return river.JobCancel(err)
+	}
+	return err
 }
 
 func (w *Worker) persist(ctx context.Context, job *river.Job[jobs.AIPlanningArgs], requestID, actorID uuid.UUID, estimatedCost float64, output any, metadata studioai.Metadata) error {

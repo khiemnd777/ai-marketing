@@ -84,6 +84,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["changeCurrentUserPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listCurrentUserSessions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/sessions/{sessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["revokeCurrentUserSession"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/internal-users": {
         parameters: {
             query?: never;
@@ -98,6 +148,42 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/internal-users/{userId}/reset-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resetInternalUserPassword"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal-users/{userId}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["setInternalUserStatus"];
         trace?: never;
     };
     "/clients": {
@@ -540,12 +626,32 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        put: operations["updateMediaAsset"];
         post?: never;
         delete: operations["deleteMediaAsset"];
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/clients/{clientId}/workspaces/{workspaceId}/media-assets/{assetId}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                assetId: components["parameters"]["AssetId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["setMediaAssetStatus"];
         trace?: never;
     };
     "/clients/{clientId}/workspaces/{workspaceId}/campaigns": {
@@ -2772,6 +2878,20 @@ export interface components {
             /** Format: date-time */
             temporaryUntil?: string | null;
         };
+        MediaAssetUpdateInput: {
+            category: string;
+            name: string;
+            folder: string;
+            usageRights: string;
+            tags: string[];
+            /** Format: date-time */
+            expiresAt: string | null;
+            version: number;
+        };
+        MediaAssetStatusInput: {
+            status: components["schemas"]["ContentStatus"];
+            version: number;
+        };
         MediaAsset: {
             /** Format: uuid */
             id: string;
@@ -2866,7 +2986,8 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
-            requiresPasswordChange?: boolean;
+            requiresPasswordChange: boolean;
+            version: number;
         };
         CreateInternalUserRequest: {
             /** Format: email */
@@ -2875,6 +2996,32 @@ export interface components {
             /** @enum {string} */
             role: "ADMIN" | "OPERATOR" | "REVIEWER";
             temporaryPassword: string;
+        };
+        ChangePasswordRequest: {
+            currentPassword: string;
+            newPassword: string;
+        };
+        ResetInternalUserPasswordRequest: {
+            temporaryPassword: string;
+            version: number;
+        };
+        InternalUserStatusRequest: {
+            /** @enum {string} */
+            status: "ACTIVE" | "DISABLED";
+            version: number;
+        };
+        UserSession: {
+            /** Format: uuid */
+            id: string;
+            ipAddress: string;
+            userAgent: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: date-time */
+            lastSeenAt: string;
+            /** Format: date-time */
+            createdAt: string;
+            current: boolean;
         };
         PageMeta: {
             number: number;
@@ -2932,6 +3079,8 @@ export interface components {
         AdCampaignId: string;
         ActionId: string;
         RecommendationId: string;
+        UserId: string;
+        SessionId: string;
         RiverJobId: number;
         JobId: string;
         IdempotencyKey: string;
@@ -3050,9 +3199,79 @@ export interface operations {
             401: components["responses"]["Problem"];
         };
     };
-    listInternalUsers: {
+    changeCurrentUserPassword: {
         parameters: {
             query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Password changed and all other sessions revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    listCurrentUserSessions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active sessions for the current user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["UserSession"][];
+                    };
+                };
+            };
+        };
+    };
+    revokeCurrentUserSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sessionId: components["parameters"]["SessionId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Session revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["Problem"];
+        };
+    };
+    listInternalUsers: {
+        parameters: {
+            query?: {
+                page?: components["parameters"]["Page"];
+                pageSize?: components["parameters"]["PageSize"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3100,6 +3319,66 @@ export interface operations {
             };
             403: components["responses"]["Problem"];
             409: components["responses"]["Problem"];
+        };
+    };
+    resetInternalUserPassword: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetInternalUserPasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Temporary password stored */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InternalUser"];
+                };
+            };
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
+    setInternalUserStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                userId: components["parameters"]["UserId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InternalUserStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description Internal user status updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InternalUser"];
+                };
+            };
+            403: components["responses"]["Problem"];
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
         };
     };
     listClients: {
@@ -3966,6 +4245,36 @@ export interface operations {
             };
         };
     };
+    updateMediaAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                assetId: components["parameters"]["AssetId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MediaAssetUpdateInput"];
+            };
+        };
+        responses: {
+            /** @description Media metadata updated with an optimistic version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaAsset"];
+                };
+            };
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
+        };
+    };
     deleteMediaAsset: {
         parameters: {
             query?: never;
@@ -3992,6 +4301,36 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    setMediaAssetStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                assetId: components["parameters"]["AssetId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MediaAssetStatusInput"];
+            };
+        };
+        responses: {
+            /** @description Media review status updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaAsset"];
+                };
+            };
+            409: components["responses"]["Problem"];
+            422: components["responses"]["Problem"];
         };
     };
     listCampaigns: {

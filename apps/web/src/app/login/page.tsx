@@ -3,7 +3,13 @@ import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = { title: "Đăng nhập nội bộ" };
 
-export default function LoginPage() {
+function safeReturnUrl(value: string | string[] | undefined) {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  return candidate && candidate.startsWith("/") && !candidate.startsWith("//") ? candidate : "/clients";
+}
+
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ returnUrl?: string | string[] }> }) {
+  const query = await searchParams;
   return (
     <main className="grid min-h-screen place-items-center px-5 py-10">
       <section className="grid w-full max-w-5xl overflow-hidden rounded-[2.25rem] border border-[var(--line)] bg-[var(--panel)] shadow-[0_30px_100px_rgba(21,43,31,0.12)] md:grid-cols-[1.1fr_0.9fr]">
@@ -22,7 +28,7 @@ export default function LoginPage() {
           <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[var(--moss)]">AI Product Marketing Studio</p>
           <h2 className="mt-3 font-serif text-3xl font-black">Đăng nhập nội bộ</h2>
           <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Tài khoản do quản trị viên cấp. Không có đăng ký công khai.</p>
-          <LoginForm />
+          <LoginForm returnUrl={safeReturnUrl(query.returnUrl)} />
         </div>
       </section>
     </main>

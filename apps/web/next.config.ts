@@ -1,18 +1,8 @@
 import type { NextConfig } from "next";
 
-const apiUrl = process.env.API_URL ?? "http://localhost:8080";
-
 const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
-  async rewrites() {
-    return [
-      {
-        source: "/api/studio/:path*",
-        destination: `${apiUrl}/v1/:path*`,
-      },
-    ];
-  },
   async headers() {
     return [
       {

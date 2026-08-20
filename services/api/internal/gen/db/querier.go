@@ -12,22 +12,28 @@ import (
 
 type Querier interface {
 	CountInternalUsers(ctx context.Context) (int64, error)
+	CountOtherActiveAdmins(ctx context.Context, excludedID uuid.UUID) (int64, error)
 	CreateInternalUser(ctx context.Context, arg CreateInternalUserParams) (InternalUser, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	DeleteExpiredSessions(ctx context.Context) (int64, error)
 	GetActiveSessionByTokenHash(ctx context.Context, tokenHash []byte) (GetActiveSessionByTokenHashRow, error)
 	GetInternalUserByEmail(ctx context.Context, email string) (InternalUser, error)
 	GetInternalUserByID(ctx context.Context, id uuid.UUID) (InternalUser, error)
+	GetInternalUserByIDForUpdate(ctx context.Context, id uuid.UUID) (InternalUser, error)
 	InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) (AuditLog, error)
+	ListActiveUserSessions(ctx context.Context, internalUserID uuid.UUID) ([]ListActiveUserSessionsRow, error)
 	ListAuditLogs(ctx context.Context, arg ListAuditLogsParams) ([]AuditLog, error)
 	ListInternalUsers(ctx context.Context, arg ListInternalUsersParams) ([]InternalUser, error)
+	LockInternalAdminUsers(ctx context.Context) ([]uuid.UUID, error)
 	RecordFailedLogin(ctx context.Context, arg RecordFailedLoginParams) error
 	RecordSuccessfulLogin(ctx context.Context, id uuid.UUID) error
 	RevokeAllUserSessions(ctx context.Context, arg RevokeAllUserSessionsParams) (int64, error)
+	RevokeOtherUserSessions(ctx context.Context, arg RevokeOtherUserSessionsParams) (int64, error)
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) (int64, error)
-	SetInternalUserStatus(ctx context.Context, arg SetInternalUserStatusParams) (InternalUser, error)
+	RevokeUserSession(ctx context.Context, arg RevokeUserSessionParams) (int64, error)
+	SetInternalUserStatusVersioned(ctx context.Context, arg SetInternalUserStatusVersionedParams) (InternalUser, error)
 	TouchSession(ctx context.Context, id uuid.UUID) error
-	UpdateInternalUserPassword(ctx context.Context, arg UpdateInternalUserPasswordParams) error
+	UpdateInternalUserPasswordVersioned(ctx context.Context, arg UpdateInternalUserPasswordVersionedParams) (InternalUser, error)
 }
 
 var _ Querier = (*Queries)(nil)

@@ -24,6 +24,18 @@ func (q *Queries) CountInternalUsers(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const countOtherActiveAdmins = `-- name: CountOtherActiveAdmins :one
+SELECT count(*) FROM internal_users
+WHERE role = 'ADMIN' AND status = 'ACTIVE' AND id <> $1
+`
+
+func (q *Queries) CountOtherActiveAdmins(ctx context.Context, excludedID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countOtherActiveAdmins, excludedID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createInternalUser = `-- name: CreateInternalUser :one
 INSERT INTO internal_users (email, display_name, password_hash, role, requires_password_change)
 VALUES (lower($1), $2, $3, $4, $5)
@@ -223,6 +235,79 @@ func (q *Queries) GetInternalUserByID(ctx context.Context, id uuid.UUID) (Intern
 	return i, err
 }
 
+const getInternalUserByIDForUpdate = `-- name: GetInternalUserByIDForUpdate :one
+SELECT id, email, display_name, password_hash, role, status, requires_password_change, failed_login_attempts, locked_until, last_login_at, password_changed_at, version, created_at, updated_at FROM internal_users WHERE id = $1 FOR UPDATE
+`
+
+func (q *Queries) GetInternalUserByIDForUpdate(ctx context.Context, id uuid.UUID) (InternalUser, error) {
+	row := q.db.QueryRow(ctx, getInternalUserByIDForUpdate, id)
+	var i InternalUser
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.Role,
+		&i.Status,
+		&i.RequiresPasswordChange,
+		&i.FailedLoginAttempts,
+		&i.LockedUntil,
+		&i.LastLoginAt,
+		&i.PasswordChangedAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const listActiveUserSessions = `-- name: ListActiveUserSessions :many
+SELECT id, internal_user_id, ip_address, user_agent, expires_at, last_seen_at, created_at
+FROM sessions
+WHERE internal_user_id = $1
+  AND revoked_at IS NULL
+  AND expires_at > now()
+ORDER BY last_seen_at DESC, created_at DESC
+`
+
+type ListActiveUserSessionsRow struct {
+	ID             uuid.UUID          `json:"id"`
+	InternalUserID uuid.UUID          `json:"internal_user_id"`
+	IpAddress      *netip.Addr        `json:"ip_address"`
+	UserAgent      string             `json:"user_agent"`
+	ExpiresAt      pgtype.Timestamptz `json:"expires_at"`
+	LastSeenAt     pgtype.Timestamptz `json:"last_seen_at"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) ListActiveUserSessions(ctx context.Context, internalUserID uuid.UUID) ([]ListActiveUserSessionsRow, error) {
+	rows, err := q.db.Query(ctx, listActiveUserSessions, internalUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListActiveUserSessionsRow{}
+	for rows.Next() {
+		var i ListActiveUserSessionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.InternalUserID,
+			&i.IpAddress,
+			&i.UserAgent,
+			&i.ExpiresAt,
+			&i.LastSeenAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listInternalUsers = `-- name: ListInternalUsers :many
 SELECT id, email, display_name, password_hash, role, status, requires_password_change, failed_login_attempts, locked_until, last_login_at, password_changed_at, version, created_at, updated_at FROM internal_users
 ORDER BY created_at DESC, id DESC
@@ -262,6 +347,30 @@ func (q *Queries) ListInternalUsers(ctx context.Context, arg ListInternalUsersPa
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockInternalAdminUsers = `-- name: LockInternalAdminUsers :many
+SELECT id FROM internal_users WHERE role = 'ADMIN' FOR UPDATE
+`
+
+func (q *Queries) LockInternalAdminUsers(ctx context.Context) ([]uuid.UUID, error) {
+	rows, err := q.db.Query(ctx, lockInternalAdminUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []uuid.UUID{}
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -317,6 +426,27 @@ func (q *Queries) RevokeAllUserSessions(ctx context.Context, arg RevokeAllUserSe
 	return result.RowsAffected(), nil
 }
 
+const revokeOtherUserSessions = `-- name: RevokeOtherUserSessions :execrows
+UPDATE sessions SET revoked_at = now(), revoke_reason = $1
+WHERE internal_user_id = $2
+  AND id <> $3
+  AND revoked_at IS NULL
+`
+
+type RevokeOtherUserSessionsParams struct {
+	Reason           *string   `json:"reason"`
+	InternalUserID   uuid.UUID `json:"internal_user_id"`
+	CurrentSessionID uuid.UUID `json:"current_session_id"`
+}
+
+func (q *Queries) RevokeOtherUserSessions(ctx context.Context, arg RevokeOtherUserSessionsParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeOtherUserSessions, arg.Reason, arg.InternalUserID, arg.CurrentSessionID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const revokeSession = `-- name: RevokeSession :execrows
 UPDATE sessions SET revoked_at = now(), revoke_reason = $1
 WHERE id = $2 AND revoked_at IS NULL
@@ -335,20 +465,42 @@ func (q *Queries) RevokeSession(ctx context.Context, arg RevokeSessionParams) (i
 	return result.RowsAffected(), nil
 }
 
-const setInternalUserStatus = `-- name: SetInternalUserStatus :one
+const revokeUserSession = `-- name: RevokeUserSession :execrows
+UPDATE sessions SET revoked_at = now(), revoke_reason = $1
+WHERE id = $2
+  AND internal_user_id = $3
+  AND revoked_at IS NULL
+`
+
+type RevokeUserSessionParams struct {
+	Reason         *string   `json:"reason"`
+	ID             uuid.UUID `json:"id"`
+	InternalUserID uuid.UUID `json:"internal_user_id"`
+}
+
+func (q *Queries) RevokeUserSession(ctx context.Context, arg RevokeUserSessionParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeUserSession, arg.Reason, arg.ID, arg.InternalUserID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const setInternalUserStatusVersioned = `-- name: SetInternalUserStatusVersioned :one
 UPDATE internal_users
 SET status = $1, version = version + 1, updated_at = now()
-WHERE id = $2
+WHERE id = $2 AND version = $3
 RETURNING id, email, display_name, password_hash, role, status, requires_password_change, failed_login_attempts, locked_until, last_login_at, password_changed_at, version, created_at, updated_at
 `
 
-type SetInternalUserStatusParams struct {
-	Status InternalUserStatus `json:"status"`
-	ID     uuid.UUID          `json:"id"`
+type SetInternalUserStatusVersionedParams struct {
+	Status  InternalUserStatus `json:"status"`
+	ID      uuid.UUID          `json:"id"`
+	Version int64              `json:"version"`
 }
 
-func (q *Queries) SetInternalUserStatus(ctx context.Context, arg SetInternalUserStatusParams) (InternalUser, error) {
-	row := q.db.QueryRow(ctx, setInternalUserStatus, arg.Status, arg.ID)
+func (q *Queries) SetInternalUserStatusVersioned(ctx context.Context, arg SetInternalUserStatusVersionedParams) (InternalUser, error) {
+	row := q.db.QueryRow(ctx, setInternalUserStatusVersioned, arg.Status, arg.ID, arg.Version)
 	var i InternalUser
 	err := row.Scan(
 		&i.ID,
@@ -378,20 +530,44 @@ func (q *Queries) TouchSession(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
-const updateInternalUserPassword = `-- name: UpdateInternalUserPassword :exec
+const updateInternalUserPasswordVersioned = `-- name: UpdateInternalUserPasswordVersioned :one
 UPDATE internal_users
 SET password_hash = $1, requires_password_change = $2,
     password_changed_at = now(), version = version + 1, updated_at = now()
-WHERE id = $3
+WHERE id = $3 AND version = $4
+RETURNING id, email, display_name, password_hash, role, status, requires_password_change, failed_login_attempts, locked_until, last_login_at, password_changed_at, version, created_at, updated_at
 `
 
-type UpdateInternalUserPasswordParams struct {
+type UpdateInternalUserPasswordVersionedParams struct {
 	PasswordHash           string    `json:"password_hash"`
 	RequiresPasswordChange bool      `json:"requires_password_change"`
 	ID                     uuid.UUID `json:"id"`
+	Version                int64     `json:"version"`
 }
 
-func (q *Queries) UpdateInternalUserPassword(ctx context.Context, arg UpdateInternalUserPasswordParams) error {
-	_, err := q.db.Exec(ctx, updateInternalUserPassword, arg.PasswordHash, arg.RequiresPasswordChange, arg.ID)
-	return err
+func (q *Queries) UpdateInternalUserPasswordVersioned(ctx context.Context, arg UpdateInternalUserPasswordVersionedParams) (InternalUser, error) {
+	row := q.db.QueryRow(ctx, updateInternalUserPasswordVersioned,
+		arg.PasswordHash,
+		arg.RequiresPasswordChange,
+		arg.ID,
+		arg.Version,
+	)
+	var i InternalUser
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.DisplayName,
+		&i.PasswordHash,
+		&i.Role,
+		&i.Status,
+		&i.RequiresPasswordChange,
+		&i.FailedLoginAttempts,
+		&i.LockedUntil,
+		&i.LastLoginAt,
+		&i.PasswordChangedAt,
+		&i.Version,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

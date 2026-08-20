@@ -312,7 +312,7 @@ func (p *LiveProvider) call(ctx context.Context, method, path string, values url
 		}
 		_ = json.NewDecoder(limited).Decode(&envelope)
 		code := strconv.Itoa(envelope.Error.Code)
-		retryable := envelope.Error.IsTransient || map[int]bool{1: true, 2: true, 4: true, 17: true, 32: true, 613: true}[envelope.Error.Code]
+		retryable := response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500 || envelope.Error.IsTransient || map[int]bool{1: true, 2: true, 4: true, 17: true, 32: true, 613: true}[envelope.Error.Code]
 		category := "PERMISSION"
 		if retryable {
 			category = "TRANSIENT"

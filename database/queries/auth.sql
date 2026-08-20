@@ -4,6 +4,9 @@ SELECT * FROM internal_users WHERE lower(email) = lower(sqlc.arg(email)) LIMIT 1
 -- name: GetInternalUserByID :one
 SELECT * FROM internal_users WHERE id = sqlc.arg(id) LIMIT 1;
 
+-- name: GetInternalUserByIDForUpdate :one
+SELECT * FROM internal_users WHERE id = sqlc.arg(id) FOR UPDATE;
+
 -- name: CountInternalUsers :one
 SELECT count(*) FROM internal_users;
 
@@ -29,17 +32,25 @@ UPDATE internal_users
 SET failed_login_attempts = 0, locked_until = NULL, last_login_at = now(), updated_at = now()
 WHERE id = sqlc.arg(id);
 
--- name: UpdateInternalUserPassword :exec
+-- name: UpdateInternalUserPasswordVersioned :one
 UPDATE internal_users
 SET password_hash = sqlc.arg(password_hash), requires_password_change = sqlc.arg(requires_password_change),
     password_changed_at = now(), version = version + 1, updated_at = now()
-WHERE id = sqlc.arg(id);
+WHERE id = sqlc.arg(id) AND version = sqlc.arg(version)
+RETURNING *;
 
--- name: SetInternalUserStatus :one
+-- name: SetInternalUserStatusVersioned :one
 UPDATE internal_users
 SET status = sqlc.arg(status), version = version + 1, updated_at = now()
-WHERE id = sqlc.arg(id)
+WHERE id = sqlc.arg(id) AND version = sqlc.arg(version)
 RETURNING *;
+
+-- name: LockInternalAdminUsers :many
+SELECT id FROM internal_users WHERE role = 'ADMIN' FOR UPDATE;
+
+-- name: CountOtherActiveAdmins :one
+SELECT count(*) FROM internal_users
+WHERE role = 'ADMIN' AND status = 'ACTIVE' AND id <> sqlc.arg(excluded_id);
 
 -- name: CreateSession :one
 INSERT INTO sessions (internal_user_id, token_hash, csrf_hash, ip_address, user_agent, expires_at)
@@ -68,6 +79,26 @@ WHERE id = sqlc.arg(id) AND revoked_at IS NULL;
 -- name: RevokeAllUserSessions :execrows
 UPDATE sessions SET revoked_at = now(), revoke_reason = sqlc.arg(reason)
 WHERE internal_user_id = sqlc.arg(internal_user_id) AND revoked_at IS NULL;
+
+-- name: RevokeOtherUserSessions :execrows
+UPDATE sessions SET revoked_at = now(), revoke_reason = sqlc.arg(reason)
+WHERE internal_user_id = sqlc.arg(internal_user_id)
+  AND id <> sqlc.arg(current_session_id)
+  AND revoked_at IS NULL;
+
+-- name: ListActiveUserSessions :many
+SELECT id, internal_user_id, ip_address, user_agent, expires_at, last_seen_at, created_at
+FROM sessions
+WHERE internal_user_id = sqlc.arg(internal_user_id)
+  AND revoked_at IS NULL
+  AND expires_at > now()
+ORDER BY last_seen_at DESC, created_at DESC;
+
+-- name: RevokeUserSession :execrows
+UPDATE sessions SET revoked_at = now(), revoke_reason = sqlc.arg(reason)
+WHERE id = sqlc.arg(id)
+  AND internal_user_id = sqlc.arg(internal_user_id)
+  AND revoked_at IS NULL;
 
 -- name: DeleteExpiredSessions :execrows
 DELETE FROM sessions WHERE expires_at < now() - interval '7 days';

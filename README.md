@@ -35,6 +35,7 @@ The production build does not require live provider credentials. Provider routes
 - [Failure diagnosis and recovery](docs/runbooks/failure-recovery.md)
 - [PostgreSQL backup and restore verification](docs/runbooks/backup-restore.md)
 - [Provider and application secret rotation](docs/runbooks/provider-secret-rotation.md)
+- [Live provider readiness certification](docs/runbooks/live-provider-certification.md)
 - [Data retention](docs/data-retention.md) and [R2 lifecycle](docs/storage/r2-lifecycle.md)
 - [Security review](docs/security-review.md) and [performance review](docs/performance-review.md)
 

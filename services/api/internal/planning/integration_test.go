@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -17,7 +21,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivermigrate"
 	"github.com/riverqueue/river/rivertype"
+	"github.com/testcontainers/testcontainers-go"
+	postgrescontainer "github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	studioai "github.com/internal/ai-product-marketing-studio/services/api/internal/ai"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/analytics"
@@ -54,12 +62,9 @@ func (e *fakeEnqueuer) EnqueueAIPlanning(_ context.Context, _ pgx.Tx, _ jobs.AIP
 }
 
 func TestDemoPlanningWorkflowIntegration(t *testing.T) {
-	databaseURL := os.Getenv("STUDIO_INTEGRATION_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("set STUDIO_INTEGRATION_DATABASE_URL to run the PostgreSQL integration workflow")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
+	databaseURL := integrationDatabaseURL(t, ctx)
 	pool, err := pgxpool.New(ctx, databaseURL)
 	if err != nil {
 		t.Fatal(err)
@@ -445,6 +450,73 @@ func TestDemoPlanningWorkflowIntegration(t *testing.T) {
 	if requests != 4 || outputs != 4 || succeeded != 4 || approvals < 4 {
 		t.Fatalf("trace invariants requests=%d outputs=%d succeeded=%d approvals=%d", requests, outputs, succeeded, approvals)
 	}
+}
+
+func integrationDatabaseURL(t *testing.T, ctx context.Context) string {
+	t.Helper()
+	if configured := strings.TrimSpace(os.Getenv("STUDIO_INTEGRATION_DATABASE_URL")); configured != "" {
+		return configured
+	}
+	if os.Getenv("STUDIO_USE_TESTCONTAINERS") != "true" {
+		t.Skip("set STUDIO_USE_TESTCONTAINERS=true or STUDIO_INTEGRATION_DATABASE_URL to run the PostgreSQL integration workflow")
+	}
+	container, err := postgrescontainer.Run(
+		ctx,
+		"postgres:18.4-alpine",
+		postgrescontainer.WithDatabase("studio_integration"),
+		postgrescontainer.WithUsername("studio"),
+		postgrescontainer.WithPassword("studio"),
+		postgrescontainer.BasicWaitStrategies(),
+	)
+	if err != nil {
+		t.Fatalf("start PostgreSQL 18 Testcontainer: %v", err)
+	}
+	testcontainers.CleanupContainer(t, container)
+	databaseURL, err := container.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("resolve Testcontainer database URL: %v", err)
+	}
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatalf("connect to Testcontainer database: %v", err)
+	}
+	defer pool.Close()
+
+	_, testFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve integration test location")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(testFile), "..", "..", "..", ".."))
+	migrations, err := filepath.Glob(filepath.Join(root, "database", "migrations", "*.sql"))
+	if err != nil || len(migrations) == 0 {
+		t.Fatalf("discover SQL migrations: files=%d err=%v", len(migrations), err)
+	}
+	for _, filename := range migrations {
+		contents, readErr := os.ReadFile(filename)
+		if readErr != nil {
+			t.Fatalf("read migration %s: %v", filepath.Base(filename), readErr)
+		}
+		tx, beginErr := pool.Begin(ctx)
+		if beginErr != nil {
+			t.Fatalf("begin migration %s: %v", filepath.Base(filename), beginErr)
+		}
+		if _, execErr := tx.Exec(ctx, string(contents)); execErr != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatalf("apply migration %s: %v", filepath.Base(filename), execErr)
+		}
+		if commitErr := tx.Commit(ctx); commitErr != nil {
+			t.Fatalf("commit migration %s: %v", filepath.Base(filename), commitErr)
+		}
+	}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	migrator, err := rivermigrate.New(riverpgxv5.New(pool), &rivermigrate.Config{Logger: logger})
+	if err != nil {
+		t.Fatalf("create River migrator: %v", err)
+	}
+	if _, err = migrator.Migrate(ctx, rivermigrate.DirectionUp, &rivermigrate.MigrateOpts{}); err != nil {
+		t.Fatalf("apply River migrations: %v", err)
+	}
+	return databaseURL
 }
 
 func floatPointer(value float64) *float64 { return &value }

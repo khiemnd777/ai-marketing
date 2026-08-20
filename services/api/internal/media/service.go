@@ -63,6 +63,15 @@ type UploadInput struct {
 	ExpiresAt      *time.Time `json:"expiresAt"`
 	TemporaryUntil *time.Time `json:"temporaryUntil"`
 }
+type UpdateInput struct {
+	Category    string     `json:"category"`
+	Name        string     `json:"name"`
+	Folder      string     `json:"folder"`
+	UsageRights string     `json:"usageRights"`
+	Tags        []string   `json:"tags"`
+	ExpiresAt   *time.Time `json:"expiresAt"`
+	Version     int64      `json:"version"`
+}
 type UploadSession struct {
 	ID                uuid.UUID                 `json:"id"`
 	AssetID           uuid.UUID                 `json:"assetId"`
@@ -112,6 +121,13 @@ func (s *Service) StartUpload(ctx context.Context, clientID, workspaceID, actorI
 	if e != nil {
 		return UploadSession{}, e
 	}
+	var scopeValid bool
+	if e = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workspaces w WHERE w.id=$2 AND w.client_id=$1 AND w.status='ACTIVE' AND ($3::uuid IS NULL OR EXISTS(SELECT 1 FROM brands b WHERE b.id=$3 AND b.client_id=$1 AND b.workspace_id=$2)) AND ($4::uuid IS NULL OR EXISTS(SELECT 1 FROM products p WHERE p.id=$4 AND p.client_id=$1 AND p.workspace_id=$2)) AND ($5::uuid IS NULL OR EXISTS(SELECT 1 FROM campaigns c WHERE c.id=$5 AND c.client_id=$1 AND c.workspace_id=$2)))`, clientID, workspaceID, i.BrandID, i.ProductID, i.CampaignID).Scan(&scopeValid); e != nil {
+		return UploadSession{}, e
+	}
+	if !scopeValid {
+		return UploadSession{}, ErrNotFound
+	}
 	assetID, uploadID := uuid.New(), uuid.New()
 	key, e := storage.ScopedObjectKey(workspaceID, assetID, i.Filename)
 	if e != nil {
@@ -119,6 +135,15 @@ func (s *Service) StartUpload(ctx context.Context, clientID, workspaceID, actorI
 	}
 	expires := time.Now().UTC().Add(30 * time.Minute)
 	session := UploadSession{ID: uploadID, AssetID: assetID, StorageKey: key, ExpiresAt: expires}
+	multipartCreated := false
+	persisted := false
+	defer func() {
+		if multipartCreated && !persisted && session.MultipartUploadID != nil {
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			_ = s.store.AbortMultipartUpload(cleanupCtx, key, *session.MultipartUploadID)
+		}
+	}()
 	if i.SizeBytes > multipartThreshold {
 		providerID, e := s.store.CreateMultipartUpload(ctx, key, i.MimeType, map[string]string{"workspace-id": workspaceID.String(), "asset-id": assetID.String()})
 		if e != nil {
@@ -126,6 +151,7 @@ func (s *Service) StartUpload(ctx context.Context, clientID, workspaceID, actorI
 		}
 		session.Multipart = true
 		session.MultipartUploadID = &providerID
+		multipartCreated = true
 	} else {
 		request, e := s.store.PresignPut(ctx, key, i.MimeType, i.SizeBytes, 30*time.Minute)
 		if e != nil {
@@ -142,7 +168,7 @@ func (s *Service) StartUpload(ctx context.Context, clientID, workspaceID, actorI
 		return UploadSession{}, e
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	tag, e := tx.Exec(ctx, `INSERT INTO media_assets(id,client_id,workspace_id,brand_id,product_id,campaign_id,asset_type,category,name,folder,usage_rights,source_metadata,expires_at,temporary_until,created_by,updated_by) SELECT $1,$2,$3,$4,$5,$6,$7::media_asset_type,$8,$9,$10,$11,$12,$13,$14,$15,$15 WHERE EXISTS(SELECT 1 FROM workspaces WHERE id=$3 AND client_id=$2 AND status='ACTIVE') AND ($4::uuid IS NULL OR EXISTS(SELECT 1 FROM brands WHERE id=$4 AND client_id=$2 AND workspace_id=$3)) AND ($5::uuid IS NULL OR EXISTS(SELECT 1 FROM products WHERE id=$5 AND client_id=$2 AND workspace_id=$3))`, assetID, clientID, workspaceID, i.BrandID, i.ProductID, i.CampaignID, i.AssetType, i.Category, i.Name, i.Folder, i.UsageRights, metadata, i.ExpiresAt, i.TemporaryUntil, actorID)
+	tag, e := tx.Exec(ctx, `INSERT INTO media_assets(id,client_id,workspace_id,brand_id,product_id,campaign_id,asset_type,category,name,folder,usage_rights,source_metadata,expires_at,temporary_until,created_by,updated_by) VALUES($1,$2,$3,$4,$5,$6,$7::media_asset_type,$8,$9,$10,$11,$12,$13,$14,$15,$15)`, assetID, clientID, workspaceID, i.BrandID, i.ProductID, i.CampaignID, i.AssetType, i.Category, i.Name, i.Folder, i.UsageRights, metadata, i.ExpiresAt, i.TemporaryUntil, actorID)
 	if e != nil {
 		return UploadSession{}, e
 	}
@@ -160,6 +186,7 @@ func (s *Service) StartUpload(ctx context.Context, clientID, workspaceID, actorI
 	if e = tx.Commit(ctx); e != nil {
 		return UploadSession{}, e
 	}
+	persisted = true
 	return session, nil
 }
 func (s *Service) PresignPart(ctx context.Context, clientID, workspaceID, uploadID uuid.UUID, part int32) (storage.PresignedRequest, error) {
@@ -188,23 +215,37 @@ func (s *Service) Complete(ctx context.Context, clientID, workspaceID, uploadID,
 	var key, mime, ext string
 	var size int64
 	var multipartID *string
-	e := s.pool.QueryRow(ctx, `SELECT media_asset_id,storage_key,multipart_upload_id,expected_mime_type,expected_extension,expected_size_bytes FROM media_uploads WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND status IN('PENDING','UPLOADING') AND expires_at>now()`, uploadID, clientID, workspaceID).Scan(&assetID, &key, &multipartID, &mime, &ext, &size)
+	var status string
+	e := s.pool.QueryRow(ctx, `SELECT media_asset_id,storage_key,multipart_upload_id,expected_mime_type,expected_extension,expected_size_bytes,status::text FROM media_uploads WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND status IN('PENDING','UPLOADING','VERIFIED') AND (status='VERIFIED' OR expires_at>now())`, uploadID, clientID, workspaceID).Scan(&assetID, &key, &multipartID, &mime, &ext, &size, &status)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return Asset{}, ErrNotFound
 	}
 	if e != nil {
 		return Asset{}, e
 	}
+	if status == "VERIFIED" {
+		return s.Get(ctx, clientID, workspaceID, assetID)
+	}
+	var meta storage.ObjectMetadata
+	metadataLoaded := false
 	if multipartID != nil {
 		if e = s.store.CompleteMultipartUpload(ctx, key, *multipartID, parts); e != nil {
-			return Asset{}, e
+			// The provider can commit the object while the response is lost. A HEAD
+			// check makes the server completion endpoint safe to retry in that case.
+			meta, e = s.store.Head(ctx, key)
+			if e != nil {
+				return Asset{}, e
+			}
+			metadataLoaded = true
 		}
 	} else if len(parts) > 0 {
 		return Asset{}, ErrInvalid
 	}
-	meta, e := s.store.Head(ctx, key)
-	if e != nil {
-		return Asset{}, e
+	if !metadataLoaded {
+		meta, e = s.store.Head(ctx, key)
+		if e != nil {
+			return Asset{}, e
+		}
 	}
 	if meta.ContentLength != size || !sameMime(meta.ContentType, mime) {
 		_, _ = s.pool.Exec(ctx, `UPDATE media_uploads SET status='FAILED',failure_reason='server metadata mismatch' WHERE id=$1`, uploadID)
@@ -251,6 +292,49 @@ func (s *Service) Download(ctx context.Context, clientID, workspaceID, id uuid.U
 	}
 	return s.store.PresignGet(ctx, key, 10*time.Minute)
 }
+func (s *Service) Update(ctx context.Context, clientID, workspaceID, id, actorID uuid.UUID, input UpdateInput) (Asset, error) {
+	if err := validateUpdate(&input); err != nil {
+		return Asset{}, err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Asset{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	tag, err := tx.Exec(ctx, `UPDATE media_assets SET category=$4,name=$5,folder=$6,usage_rights=$7,expires_at=$8,version=version+1,updated_by=$9,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND version=$10 AND deleted_at IS NULL`, id, clientID, workspaceID, input.Category, input.Name, input.Folder, input.UsageRights, input.ExpiresAt, actorID, input.Version)
+	if err != nil {
+		return Asset{}, err
+	}
+	if tag.RowsAffected() != 1 {
+		return Asset{}, ErrConflict
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM media_asset_tags WHERE media_asset_id=$1`, id); err != nil {
+		return Asset{}, err
+	}
+	if len(input.Tags) > 0 {
+		if _, err = tx.Exec(ctx, `INSERT INTO media_asset_tags(media_asset_id,tag) SELECT $1,unnest($2::text[])`, id, input.Tags); err != nil {
+			return Asset{}, err
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Asset{}, err
+	}
+	return s.Get(ctx, clientID, workspaceID, id)
+}
+func (s *Service) SetStatus(ctx context.Context, clientID, workspaceID, id, actorID uuid.UUID, status string, version int64) (Asset, error) {
+	status = strings.ToUpper(strings.TrimSpace(status))
+	if !map[string]bool{"DRAFT": true, "APPROVED": true, "REJECTED": true, "ARCHIVED": true}[status] || version < 1 {
+		return Asset{}, ErrInvalid
+	}
+	tag, err := s.pool.Exec(ctx, `UPDATE media_assets SET status=$4::content_status,version=version+1,updated_by=$5,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND version=$6 AND deleted_at IS NULL`, id, clientID, workspaceID, status, actorID, version)
+	if err != nil {
+		return Asset{}, err
+	}
+	if tag.RowsAffected() != 1 {
+		return Asset{}, ErrConflict
+	}
+	return s.Get(ctx, clientID, workspaceID, id)
+}
 func (s *Service) SoftDelete(ctx context.Context, clientID, workspaceID, id, actorID uuid.UUID, version int64) error {
 	tag, e := s.pool.Exec(ctx, `UPDATE media_assets SET deleted_at=now(),status='ARCHIVED',version=version+1,updated_by=$4,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND version=$5 AND deleted_at IS NULL`, id, clientID, workspaceID, actorID, version)
 	if e != nil {
@@ -258,6 +342,25 @@ func (s *Service) SoftDelete(ctx context.Context, clientID, workspaceID, id, act
 	}
 	if tag.RowsAffected() != 1 {
 		return ErrConflict
+	}
+	return nil
+}
+
+func validateUpdate(input *UpdateInput) error {
+	input.Name = strings.TrimSpace(input.Name)
+	input.Category = strings.TrimSpace(input.Category)
+	input.Folder = strings.Trim(strings.TrimSpace(input.Folder), "/")
+	input.UsageRights = strings.TrimSpace(input.UsageRights)
+	if input.Name == "" || len(input.Name) > 240 || len(input.Category) > 120 || len(input.Folder) > 500 || input.UsageRights == "" || len(input.UsageRights) > 4000 || input.Version < 1 {
+		return ErrInvalid
+	}
+	seen := map[string]bool{}
+	for index, tag := range input.Tags {
+		input.Tags[index] = strings.TrimSpace(tag)
+		if input.Tags[index] == "" || len(input.Tags[index]) > 80 || seen[input.Tags[index]] {
+			return ErrInvalid
+		}
+		seen[input.Tags[index]] = true
 	}
 	return nil
 }
@@ -284,7 +387,7 @@ func validateUpload(i *UploadInput) (string, error) {
 	i.Filename = filepath.Base(strings.TrimSpace(i.Filename))
 	i.MimeType = strings.ToLower(strings.TrimSpace(strings.Split(i.MimeType, ";")[0]))
 	i.UsageRights = strings.TrimSpace(i.UsageRights)
-	if i.Name == "" || i.UsageRights == "" || i.SizeBytes <= 0 || i.CampaignID != nil {
+	if i.Name == "" || i.UsageRights == "" || i.SizeBytes <= 0 {
 		return "", ErrInvalid
 	}
 	validTypes := map[string]bool{"IMAGE": true, "VIDEO": true, "AUDIO": true, "LOGO": true, "BROCHURE": true, "SCREENSHOT": true, "SCREEN_RECORDING": true}

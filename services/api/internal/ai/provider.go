@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -10,6 +11,29 @@ import (
 )
 
 const PromptVersion = "planning-v1.0.0"
+
+type ProviderError struct {
+	Category, Code, SafeMessage string
+	Retryable                   bool
+	Cause                       error
+}
+
+func (e *ProviderError) Error() string {
+	if e.Code == "" {
+		return e.SafeMessage
+	}
+	return e.SafeMessage + " (" + e.Code + ")"
+}
+
+func (e *ProviderError) Unwrap() error { return e.Cause }
+
+func AsProviderError(err error) *ProviderError {
+	var providerError *ProviderError
+	if errors.As(err, &providerError) {
+		return providerError
+	}
+	return &ProviderError{Category: "INTERNAL", Code: "provider_error", SafeMessage: "AI provider request failed", Cause: err}
+}
 
 type ProductFact struct {
 	ID         uuid.UUID `json:"id"`

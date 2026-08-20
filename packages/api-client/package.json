@@ -8,7 +8,7 @@
   },
   "scripts": {
     "generate": "openapi-typescript ../../openapi/openapi.yaml -o src/generated/schema.ts",
-    "generate:check": "bun run generate && git diff --exit-code -- src/generated/schema.ts",
+    "generate:check": "generated_file=$(mktemp) && openapi-typescript ../../openapi/openapi.yaml -o \"$generated_file\" && diff -u src/generated/schema.ts \"$generated_file\"",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",

@@ -24,6 +24,10 @@ var (
 	ErrAccountLocked      = errors.New("account temporarily locked")
 	ErrUnauthenticated    = errors.New("authentication required")
 	ErrInvalidCSRF        = errors.New("invalid CSRF token")
+	ErrInvalidPassword    = errors.New("current password is invalid")
+	ErrPasswordPolicy     = errors.New("new password does not meet policy")
+	ErrConflict           = errors.New("authentication state conflict")
+	ErrSessionNotFound    = errors.New("session not found")
 )
 
 type ClientMetadata struct {
@@ -51,6 +55,16 @@ type LoginResult struct {
 	SessionToken string
 	CSRFToken    string
 	ExpiresAt    time.Time
+}
+
+type SessionInfo struct {
+	ID         uuid.UUID
+	IPAddress  string
+	UserAgent  string
+	ExpiresAt  time.Time
+	LastSeenAt time.Time
+	CreatedAt  time.Time
+	Current    bool
 }
 
 type Service struct {
@@ -206,6 +220,107 @@ func (s *Service) Logout(ctx context.Context, principal Principal, metadata Clie
 		return fmt.Errorf("write logout audit: %w", err)
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *Service) ChangePassword(ctx context.Context, principal Principal, currentPassword, newPassword string, metadata ClientMetadata) error {
+	if len(currentPassword) < 10 || len(currentPassword) > 200 || len(newPassword) < 14 || len(newPassword) > 200 || currentPassword == newPassword {
+		return ErrPasswordPolicy
+	}
+	passwordHash, err := HashPassword(newPassword, DefaultArgon2Params)
+	if err != nil {
+		return fmt.Errorf("hash new password: %w", err)
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin password transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	queries := s.queries.WithTx(tx)
+	user, err := queries.GetInternalUserByIDForUpdate(ctx, principal.UserID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrUnauthenticated
+	}
+	if err != nil {
+		return fmt.Errorf("load password owner: %w", err)
+	}
+	valid, verifyErr := VerifyPassword(currentPassword, user.PasswordHash)
+	if verifyErr != nil || !valid {
+		return ErrInvalidPassword
+	}
+	if user.Version != principal.Version {
+		return ErrConflict
+	}
+	if _, err = queries.UpdateInternalUserPasswordVersioned(ctx, db.UpdateInternalUserPasswordVersionedParams{
+		PasswordHash: passwordHash, RequiresPasswordChange: false, ID: user.ID, Version: user.Version,
+	}); errors.Is(err, pgx.ErrNoRows) {
+		return ErrConflict
+	} else if err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+	reason := "password_changed"
+	if _, err = queries.RevokeOtherUserSessions(ctx, db.RevokeOtherUserSessionsParams{
+		Reason: &reason, InternalUserID: user.ID, CurrentSessionID: principal.SessionID,
+	}); err != nil {
+		return fmt.Errorf("revoke other sessions: %w", err)
+	}
+	actor := uuid.NullUUID{UUID: principal.UserID, Valid: true}
+	if err = audit.Record(ctx, queries, audit.Event{
+		ActorID: actor, Action: "auth.password.changed", EntityType: "internal_user", EntityID: actor,
+		RequestID: metadata.RequestID, IPAddress: metadata.IPAddress, UserAgent: truncate(metadata.UserAgent, 1000),
+		Outcome: "SUCCESS", After: map[string]any{"requiresPasswordChange": false, "otherSessionsRevoked": true},
+	}); err != nil {
+		return fmt.Errorf("write password audit: %w", err)
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Service) ListSessions(ctx context.Context, principal Principal) ([]SessionInfo, error) {
+	rows, err := s.queries.ListActiveUserSessions(ctx, principal.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("list active sessions: %w", err)
+	}
+	items := make([]SessionInfo, 0, len(rows))
+	for _, row := range rows {
+		address := ""
+		if row.IpAddress != nil {
+			address = row.IpAddress.String()
+		}
+		items = append(items, SessionInfo{
+			ID: row.ID, IPAddress: address, UserAgent: row.UserAgent, ExpiresAt: row.ExpiresAt.Time,
+			LastSeenAt: row.LastSeenAt.Time, CreatedAt: row.CreatedAt.Time, Current: row.ID == principal.SessionID,
+		})
+	}
+	return items, nil
+}
+
+func (s *Service) RevokeOwnSession(ctx context.Context, principal Principal, sessionID uuid.UUID, metadata ClientMetadata) (bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin session revocation: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	queries := s.queries.WithTx(tx)
+	reason := "user_revoked"
+	affected, err := queries.RevokeUserSession(ctx, db.RevokeUserSessionParams{Reason: &reason, ID: sessionID, InternalUserID: principal.UserID})
+	if err != nil {
+		return false, fmt.Errorf("revoke user session: %w", err)
+	}
+	if affected != 1 {
+		return false, ErrSessionNotFound
+	}
+	actor := uuid.NullUUID{UUID: principal.UserID, Valid: true}
+	if err = audit.Record(ctx, queries, audit.Event{
+		ActorID: actor, Action: "auth.session.revoked", EntityType: "session",
+		EntityID: uuid.NullUUID{UUID: sessionID, Valid: true}, RequestID: metadata.RequestID,
+		IPAddress: metadata.IPAddress, UserAgent: truncate(metadata.UserAgent, 1000), Outcome: "SUCCESS",
+		After: map[string]any{"currentSession": sessionID == principal.SessionID},
+	}); err != nil {
+		return false, fmt.Errorf("write session revocation audit: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit session revocation: %w", err)
+	}
+	return sessionID == principal.SessionID, nil
 }
 
 func (s *Service) auditFailure(ctx context.Context, actor uuid.NullUUID, action, reason string, metadata ClientMetadata) error {

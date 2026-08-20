@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/google/uuid"
 
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/auth"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/gen/db"
@@ -32,6 +33,17 @@ type userResponse struct {
 	LastLoginAt            *time.Time `json:"lastLoginAt"`
 	CreatedAt              time.Time  `json:"createdAt"`
 	UpdatedAt              time.Time  `json:"updatedAt"`
+	Version                int64      `json:"version"`
+}
+
+type resetPasswordRequest struct {
+	TemporaryPassword string `json:"temporaryPassword"`
+	Version           int64  `json:"version"`
+}
+
+type statusRequest struct {
+	Status  db.InternalUserStatus `json:"status"`
+	Version int64                 `json:"version"`
 }
 
 func NewHandler(service *Service) *Handler { return &Handler{service: service} }
@@ -48,7 +60,7 @@ func (h *Handler) Create(c fiber.Ctx) error {
 	if !ok {
 		return problem.Write(c, fiber.StatusUnauthorized, "unauthenticated", "Cần đăng nhập", "Phiên đăng nhập không hợp lệ.")
 	}
-	created, err := h.service.Create(c.Context(), CreateInput{Email: input.Email, DisplayName: input.DisplayName, Role: input.Role, TemporaryPassword: input.TemporaryPassword}, principal, metadata(c))
+	created, err := h.service.Create(c.Context(), CreateInput{Email: input.Email, DisplayName: input.DisplayName, Role: input.Role, TemporaryPassword: input.TemporaryPassword}, principal, auth.MetadataFrom(c))
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrInvalidInput):
@@ -76,11 +88,63 @@ func (h *Handler) List(c fiber.Ctx) error {
 	return c.JSON(fiber.Map{"items": items, "page": fiber.Map{"number": result.Number, "size": result.Size, "totalItems": result.TotalItems, "totalPages": result.TotalPages}})
 }
 
-func mapResponse(user User) userResponse {
-	return userResponse{ID: user.ID.String(), Email: user.Email, DisplayName: user.DisplayName, Role: string(user.Role), Status: string(user.Status), RequiresPasswordChange: user.RequiresPasswordChange, LastLoginAt: user.LastLoginAt, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt}
+func (h *Handler) ResetPassword(c fiber.Ctx) error {
+	userID, err := uuid.Parse(c.Params("userId"))
+	if err != nil {
+		return problem.Write(c, fiber.StatusBadRequest, "invalid-id", "ID tài khoản không hợp lệ", "User ID phải là UUID hợp lệ.")
+	}
+	var input resetPasswordRequest
+	if err = c.Bind().Body(&input); err != nil {
+		return problem.Write(c, fiber.StatusBadRequest, "invalid-request", "Yêu cầu không hợp lệ", "Nội dung reset mật khẩu phải là JSON hợp lệ.")
+	}
+	principal, ok := auth.PrincipalFrom(c)
+	if !ok {
+		return problem.Write(c, fiber.StatusUnauthorized, "unauthenticated", "Cần đăng nhập", "Phiên đăng nhập không hợp lệ.")
+	}
+	updated, err := h.service.ResetPassword(c.Context(), userID, input.Version, input.TemporaryPassword, principal, auth.MetadataFrom(c))
+	if err != nil {
+		return writeLifecycleError(c, err, "Không thể reset mật khẩu")
+	}
+	return c.JSON(mapResponse(updated))
 }
 
-func metadata(c fiber.Ctx) auth.ClientMetadata {
-	requestID, _ := c.Locals("request_id").(string)
-	return auth.ClientMetadata{RequestID: requestID, UserAgent: c.Get(fiber.HeaderUserAgent)}
+func (h *Handler) SetStatus(c fiber.Ctx) error {
+	userID, err := uuid.Parse(c.Params("userId"))
+	if err != nil {
+		return problem.Write(c, fiber.StatusBadRequest, "invalid-id", "ID tài khoản không hợp lệ", "User ID phải là UUID hợp lệ.")
+	}
+	var input statusRequest
+	if err = c.Bind().Body(&input); err != nil {
+		return problem.Write(c, fiber.StatusBadRequest, "invalid-request", "Yêu cầu không hợp lệ", "Nội dung trạng thái phải là JSON hợp lệ.")
+	}
+	principal, ok := auth.PrincipalFrom(c)
+	if !ok {
+		return problem.Write(c, fiber.StatusUnauthorized, "unauthenticated", "Cần đăng nhập", "Phiên đăng nhập không hợp lệ.")
+	}
+	updated, err := h.service.SetStatus(c.Context(), userID, input.Status, input.Version, principal, auth.MetadataFrom(c))
+	if err != nil {
+		return writeLifecycleError(c, err, "Không thể đổi trạng thái tài khoản")
+	}
+	return c.JSON(mapResponse(updated))
+}
+
+func writeLifecycleError(c fiber.Ctx, err error, fallback string) error {
+	switch {
+	case errors.Is(err, ErrInvalidInput):
+		return problem.Write(c, fiber.StatusUnprocessableEntity, "validation", "Dữ liệu không hợp lệ", "Kiểm tra mật khẩu, trạng thái và phiên bản tài khoản.")
+	case errors.Is(err, ErrNotFound):
+		return problem.Write(c, fiber.StatusNotFound, "user-not-found", "Không tìm thấy tài khoản", "Tài khoản không tồn tại.")
+	case errors.Is(err, ErrConflict):
+		return problem.Write(c, fiber.StatusConflict, "stale-user", "Tài khoản đã thay đổi", "Tải lại danh sách và thử lại.")
+	case errors.Is(err, ErrSelfDisable):
+		return problem.Write(c, fiber.StatusConflict, "self-disable", "Không thể vô hiệu hóa chính mình", "Nhờ một quản trị viên khác thực hiện thao tác này.")
+	case errors.Is(err, ErrLastAdmin):
+		return problem.Write(c, fiber.StatusConflict, "last-admin", "Cần ít nhất một quản trị viên", "Không thể vô hiệu hóa quản trị viên đang hoạt động cuối cùng.")
+	default:
+		return problem.Write(c, fiber.StatusInternalServerError, "internal", fallback, "Hệ thống chưa thể hoàn tất thao tác.")
+	}
+}
+
+func mapResponse(user User) userResponse {
+	return userResponse{ID: user.ID.String(), Email: user.Email, DisplayName: user.DisplayName, Role: string(user.Role), Status: string(user.Status), RequiresPasswordChange: user.RequiresPasswordChange, LastLoginAt: user.LastLoginAt, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt, Version: user.Version}
 }
