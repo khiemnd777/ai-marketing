@@ -130,7 +130,7 @@ jobs:
       R2_BUCKET: e2e-media
       R2_ENDPOINT: http://127.0.0.1:9000
       RENDERER_BASE_URL: http://127.0.0.1:8090
-      RENDERER_SHARED_SECRET: e2e-renderer-shared-secret
+      RENDERER_SHARED_SECRET: e2e-renderer-shared-secret-at-least-32-bytes
       DEMO_MODE: "true"
       BOOTSTRAP_ADMIN_EMAIL: admin-e2e@example.com
       BOOTSTRAP_ADMIN_NAME: E2E Administrator
@@ -170,6 +170,7 @@ jobs:
         run: |
           go build -o /tmp/studio-worker-e2e ./cmd/worker
           /tmp/studio-worker-e2e >/tmp/studio-worker-e2e.log 2>&1 &
+          echo "$!" >/tmp/studio-worker-e2e.pid
       - name: Build and start web
         run: |
           bun run --filter @studio/web build
@@ -177,6 +178,10 @@ jobs:
       - name: Wait for application
         run: |
           for attempt in $(seq 1 60); do
+            if [ ! -s /tmp/studio-worker-e2e.pid ] || ! kill -0 "$(cat /tmp/studio-worker-e2e.pid)" 2>/dev/null; then
+              cat /tmp/studio-worker-e2e.log
+              exit 1
+            fi
             if curl --fail --silent http://127.0.0.1:8080/v1/health/ready >/dev/null && curl --fail --silent http://127.0.0.1:3000/login >/dev/null; then
               exit 0
             fi

@@ -4,7 +4,10 @@ export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 2 : 0,
+  // These tests share one stateful API and exercise authentication limits.
+  // Retrying a single spec reuses that state and can turn the original failure
+  // into a misleading 429, so the workflow should fail on the first signal.
+  retries: 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI ? [["line"], ["html", { open: "never" }]] : "list",
   use: {

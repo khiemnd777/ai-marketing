@@ -2,15 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/riverqueue/river/riverdriver/riverpgxv5"
 	"github.com/riverqueue/river/rivermigrate"
 
-	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/config"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/database"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/platform/logging"
 )
@@ -23,15 +24,15 @@ func main() {
 }
 
 func run() error {
-	cfg, err := config.Load()
+	databaseURL, logLevel, err := migrationSettings()
 	if err != nil {
 		return err
 	}
-	logger := logging.New(cfg.LogLevel)
+	logger := logging.New(logLevel)
 	slog.SetDefault(logger)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	pool, err := database.Open(ctx, cfg.DatabaseURL)
+	pool, err := database.Open(ctx, databaseURL)
 	if err != nil {
 		return err
 	}
@@ -46,4 +47,16 @@ func run() error {
 	}
 	logger.Info("River migrations applied", "versions", len(result.Versions))
 	return nil
+}
+
+func migrationSettings() (databaseURL string, logLevel string, err error) {
+	databaseURL = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	if databaseURL == "" {
+		return "", "", errors.New("DATABASE_URL is required to run River migrations")
+	}
+	logLevel = strings.TrimSpace(os.Getenv("LOG_LEVEL"))
+	if logLevel == "" {
+		logLevel = "info"
+	}
+	return databaseURL, logLevel, nil
 }
