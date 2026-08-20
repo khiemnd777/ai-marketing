@@ -32,6 +32,8 @@ test("auth gate, forced password change, admin reset/status, session revocation,
   const changedPassword = `Changed-${suffix}-B2!`;
   const resetPassword = `Reset-${suffix}-C3!`;
   const finalPassword = `Final-${suffix}-D4!`;
+  const clientName = `Auth Client ${suffix}`;
+  const workspaceName = `Auth Workspace ${suffix}`;
 
   await page.goto("/clients");
   await expect(page).toHaveURL(/\/login\?returnUrl=%2Fclients/);
@@ -39,6 +41,19 @@ test("auth gate, forced password change, admin reset/status, session revocation,
 
   await login(page, adminEmail!, adminPassword!);
   await expect(page).toHaveURL(/\/clients(?:\?|$)/);
+  await page.getByRole("button", { name: "Thêm khách hàng" }).click();
+  await page.getByLabel("Tên công ty").fill(clientName);
+  await page.getByLabel("Người liên hệ").fill("Auth Administrator");
+  await page.getByLabel("Email", { exact: true }).fill(`auth-${suffix}@example.com`);
+  await page.getByLabel("Ngành").fill("Software");
+  await page.getByRole("button", { name: "Tạo khách hàng" }).click();
+  await page.getByRole("link", { name: clientName }).click();
+  await page.getByRole("button", { name: "Thêm workspace" }).click();
+  await page.getByLabel("Tên workspace").fill(workspaceName);
+  await page.getByLabel("Slug").fill(`auth-${suffix}`.toLowerCase());
+  await page.getByRole("button", { name: "Tạo workspace" }).click();
+  await expect(page.getByRole("link").filter({ hasText: workspaceName })).toBeVisible();
+
   await page.goto("/internal-users");
   await page.getByRole("button", { name: "Thêm người dùng" }).click();
   await page.getByLabel("Họ tên").fill(`Operator ${suffix}`);

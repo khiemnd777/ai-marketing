@@ -27,7 +27,7 @@ test("login and authenticated shell satisfy automated WCAG A/AA checks", async (
   await page.goto("/login");
   await assertWcag(page);
   await login(page);
-  await expect(page.getByRole("heading", { name: "Khách hàng" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Khách hàng", exact: true })).toBeVisible();
   await assertWcag(page);
 });
 
