@@ -342,7 +342,7 @@ func (h *Handler) SetMaintenance(c fiber.Ctx) error {
 	if c.Bind().Body(&input) != nil || len(input.Reason) > 500 {
 		return problem.Write(c, 422, "maintenance-invalid", "Maintenance config không hợp lệ", "Reason tối đa 500 ký tự.")
 	}
-	_, err := h.pool.Exec(c.Context(), `INSERT INTO feature_flags(key,description,enabled,safe_config,updated_at)VALUES('maintenance_mode','Block non-operational mutations during maintenance',$1,jsonb_build_object('reason',$2),now())ON CONFLICT(key)DO UPDATE SET enabled=EXCLUDED.enabled,safe_config=EXCLUDED.safe_config,updated_at=now()`, input.Enabled, strings.TrimSpace(input.Reason))
+	_, err := h.pool.Exec(c.Context(), `INSERT INTO feature_flags(key,description,enabled,safe_config,updated_at)VALUES('maintenance_mode','Block non-operational mutations during maintenance',$1,jsonb_build_object('reason',$2::text),now())ON CONFLICT(key)DO UPDATE SET enabled=EXCLUDED.enabled,safe_config=EXCLUDED.safe_config,updated_at=now()`, input.Enabled, strings.TrimSpace(input.Reason))
 	if err != nil {
 		return consoleError(c, err)
 	}

@@ -231,7 +231,7 @@ func (w *QualityCheckWorker) Work(ctx context.Context, job *river.Job[jobs.Quali
 	if _, err = tx.Exec(ctx, `UPDATE campaigns c SET status='SCENE_REVIEW',version=c.version+1,updated_at=now() FROM scene_generation_tasks g WHERE g.id=$1 AND c.id=g.campaign_id AND c.status='SCENES_GENERATING'`, job.Args.GenerationTaskID); err != nil {
 		return err
 	}
-	_, err = tx.Exec(ctx, `INSERT INTO scene_generation_events(generation_task_id,from_status,to_status,source,safe_detail,metadata)VALUES($1,'VALIDATING','REVIEW_REQUIRED','WORKER','Automated QC completed',jsonb_build_object('deterministicPass',$2))`, job.Args.GenerationTaskID, deterministicPass)
+	_, err = tx.Exec(ctx, `INSERT INTO scene_generation_events(generation_task_id,from_status,to_status,source,safe_detail,metadata)VALUES($1,'VALIDATING','REVIEW_REQUIRED','WORKER','Automated QC completed',jsonb_build_object('deterministicPass',$2::boolean))`, job.Args.GenerationTaskID, deterministicPass)
 	return firstError(err, tx.Commit(ctx))
 }
 

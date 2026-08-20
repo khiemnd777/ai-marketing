@@ -191,17 +191,25 @@ func TestDemoPlanningWorkflowIntegration(t *testing.T) {
 	if _, err = pool.Exec(ctx, `INSERT INTO media_assets(id,client_id,workspace_id,product_id,campaign_id,asset_type,category,name,status,usage_rights,created_by,updated_by)VALUES($1,$2,$3,$4,$5,'VIDEO','seedance-output','Integration generated take','DRAFT','Integration fixture',$6,$6)`, outputAssetID, clientID, workspaceID, productID, campaign.ID, actorID); err != nil {
 		t.Fatalf("seed generated output asset: %v", err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO media_asset_versions(media_asset_id,client_id,workspace_id,version,storage_key,original_filename,mime_type,file_extension,file_size_bytes,checksum_sha256,width,height,duration_ms,codec,verified_at,created_by)VALUES($1,$2,$3,1,$4,'take.mp4','video/mp4','.mp4',1024,$5,720,1280,$6,'h264',now(),$7)`, outputAssetID, clientID, workspaceID, "integration/"+outputAssetID.String()+"/take.mp4", strings.Repeat("a", 64), int64(scenes[0].Direction.DurationSeconds)*1000, actorID); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO media_asset_versions(media_asset_id,client_id,workspace_id,version,storage_key,original_filename,mime_type,file_extension,file_size_bytes,checksum_sha256,width,height,duration_ms,codec,metadata,verified_at,created_by)VALUES($1,$2,$3,1,$4,'take.mp4','video/mp4','.mp4',1024,$5,406,720,$6::bigint,'h264',jsonb_build_object('probe',jsonb_build_object('width',406,'height',720,'durationMs',$6::bigint,'codec','h264','bitrateBps',1000,'audioStream',true)),now(),$7)`, outputAssetID, clientID, workspaceID, "integration/"+outputAssetID.String()+"/take.mp4", strings.Repeat("a", 64), int64(scenes[0].Direction.DurationSeconds)*1000, actorID); err != nil {
 		t.Fatalf("seed generated output version: %v", err)
 	}
-	if _, err = pool.Exec(ctx, `UPDATE scene_generation_tasks SET status='REVIEW_REQUIRED',output_asset_id=$2 WHERE id=$1`, generation.ID, outputAssetID); err != nil {
-		t.Fatalf("seed review-ready take: %v", err)
+	if _, err = pool.Exec(ctx, `UPDATE scene_generation_tasks SET status='VALIDATING',output_asset_id=$2 WHERE id=$1`, generation.ID, outputAssetID); err != nil {
+		t.Fatalf("seed validating take: %v", err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO scene_transcriptions(generation_task_id,status,provider,model,language,transcript,segments,transcript_hash,completed_at)VALUES($1,'SUCCEEDED','demo','demo-transcribe','vi','Demo dialogue','[]','integration',now())`, generation.ID); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO scene_transcriptions(generation_task_id,status,provider,model,language,transcript,segments,transcript_hash,completed_at)VALUES($1,'SUCCEEDED','demo','demo-transcribe','vi',$2,'[]','integration',now())`, generation.ID, scenes[0].Direction.Dialogue); err != nil {
 		t.Fatalf("seed transcription: %v", err)
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO scene_quality_checks(generation_task_id,status,deterministic_pass,transcript_pass,video_decodes,duration_pass,resolution_pass,audio_stream_present,silence_warning,transcript_diff,findings,completed_at)VALUES($1,'REVIEW_REQUIRED',true,true,true,true,true,true,false,'{}','[]',now())`, generation.ID); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO scene_quality_checks(generation_task_id,status)VALUES($1,'QUEUED')`, generation.ID); err != nil {
 		t.Fatalf("seed quality check: %v", err)
+	}
+	qualityWorker := &video.QualityCheckWorker{Pool: pool}
+	if err = qualityWorker.Work(ctx, &river.Job[jobs.QualityCheckArgs]{JobRow: &rivertype.JobRow{ID: 100_003, Attempt: 1, MaxAttempts: 3}, Args: jobs.QualityCheckArgs{GenerationTaskID: generation.ID}}); err != nil {
+		t.Fatalf("complete deterministic quality checks: %v", err)
+	}
+	reviewReady, err := videoService.Get(ctx, clientID, workspaceID, campaign.ID, scenes[0].ID, generation.ID)
+	if err != nil || reviewReady.Status != "REVIEW_REQUIRED" || reviewReady.QualityCheck == nil || reviewReady.QualityCheck.DeterministicPass == nil || !*reviewReady.QualityCheck.DeterministicPass {
+		t.Fatalf("quality-check generation: generation=%#v err=%v", reviewReady, err)
 	}
 	trimEnd := int64(scenes[0].Direction.DurationSeconds)*1000 - 100
 	edited, err := videoService.UpdateEdit(ctx, clientID, workspaceID, campaign.ID, scenes[0].ID, generation.ID, actorID, video.GenerationEdit{TrimStartMS: 100, TrimEndMS: &trimEnd, MuteAudio: false, Transition: "CROSSFADE", AttachedProductAssetIDs: []uuid.UUID{}, SubtitlePreview: true, Version: 1})
@@ -210,7 +218,7 @@ func TestDemoPlanningWorkflowIntegration(t *testing.T) {
 	}
 	characterCount := int32(2)
 	no := false
-	reviewed, err := videoService.Review(ctx, clientID, workspaceID, campaign.ID, scenes[0].ID, generation.ID, actorID, video.ReviewInput{Action: "APPROVE", Version: reused.Version, Notes: "Integration human review", CharacterCount: &characterCount, DuplicateCharacter: &no, DuplicateProduct: &no, ProductColorMismatch: &no, BlurOrLowQualityWarning: &no, CropWarning: &no, SubtitleOverflow: &no, LogoOverlap: &no, CTASafeZoneViolation: &no})
+	reviewed, err := videoService.Review(ctx, clientID, workspaceID, campaign.ID, scenes[0].ID, generation.ID, actorID, video.ReviewInput{Action: "APPROVE", Version: reviewReady.Version, Notes: "Integration human review", CharacterCount: &characterCount, DuplicateCharacter: &no, DuplicateProduct: &no, ProductColorMismatch: &no, BlurOrLowQualityWarning: &no, CropWarning: &no, SubtitleOverflow: &no, LogoOverlap: &no, CTASafeZoneViolation: &no})
 	if err != nil || reviewed.Status != "APPROVED" {
 		t.Fatalf("review generation: generation=%#v err=%v", reviewed, err)
 	}

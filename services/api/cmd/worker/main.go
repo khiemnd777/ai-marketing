@@ -115,6 +115,7 @@ func run() error {
 	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Queues:  queues,
 		Workers: workers,
+		Logger:  logger,
 		Plugins: telemetry.RiverPlugins(),
 		PeriodicJobs: []*river.PeriodicJob{
 			river.NewPeriodicJob(
