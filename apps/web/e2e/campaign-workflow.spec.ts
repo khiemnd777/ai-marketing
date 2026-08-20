@@ -103,7 +103,9 @@ test("complete no-cost product truth to analytics journey", async ({ page }) => 
   await page.getByLabel("Sản phẩm").selectOption({ label: productName });
   await page.getByRole("button", { name: "Tạo brief" }).click();
   await page.getByRole("link", { name: campaignName }).click();
+  await expect(page).toHaveURL(/\/campaigns\/[0-9a-f-]+(?:\?|$)/);
   const campaignId = new URL(page.url()).pathname.split("/")[2]!;
+  expect(campaignId).toMatch(/^[0-9a-f-]+$/);
   await page.getByLabel("Người nói").selectOption({ label: `${primaryName} · NOT_REQUIRED` });
   await page.getByLabel("Người nghe").selectOption({ label: `${listenerName} · NOT_REQUIRED` });
   await page.getByRole("button", { name: "Khóa cặp nhân vật" }).click();
