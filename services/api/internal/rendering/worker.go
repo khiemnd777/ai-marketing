@@ -29,6 +29,14 @@ type Worker struct {
 	Renderer *RendererClient
 }
 
+const finalRenderPersistenceGrace = 5 * time.Minute
+
+// Timeout must outlive RendererClient's request timeout so a successful render
+// still has time to persist its media asset, subtitles, usage, and review state.
+func (*Worker) Timeout(*river.Job[jobs.FinalRenderArgs]) time.Duration {
+	return rendererRequestTimeout + finalRenderPersistenceGrace
+}
+
 type manifestContext struct {
 	ClientID, WorkspaceID, CampaignID, ProjectID, ActorID                                          uuid.UUID
 	ProjectVersion                                                                                 int32
@@ -274,7 +282,11 @@ func (w *Worker) fail(ctx context.Context, job *river.Job[jobs.FinalRenderArgs],
 	if job.JobRow != nil && job.Attempt >= job.MaxAttempts {
 		status = "FAILED"
 	}
-	_, _ = w.Pool.Exec(ctx, `UPDATE render_jobs SET status=$2::render_job_status,error_code=CASE WHEN $2::text='FAILED' THEN 'renderer_failed' ELSE NULL END,error_message=CASE WHEN $2::text='FAILED' THEN 'Final renderer could not complete the manifest' ELSE NULL END,version=version+1,updated_at=now() WHERE id=$1`, job.Args.RenderJobID, status)
+	failureContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if _, err := w.Pool.Exec(failureContext, `UPDATE render_jobs SET status=$2::render_job_status,error_code=CASE WHEN $2::text='FAILED' THEN 'renderer_failed' ELSE NULL END,error_message=CASE WHEN $2::text='FAILED' THEN 'Final renderer could not complete the manifest' ELSE NULL END,version=version+1,updated_at=now() WHERE id=$1`, job.Args.RenderJobID, status); err != nil {
+		return errors.Join(cause, fmt.Errorf("persist render failure state: %w", err))
+	}
 	return cause
 }
 func subtitles(cues []CaptionCue) ([]byte, []byte) {

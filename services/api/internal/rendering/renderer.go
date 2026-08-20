@@ -113,11 +113,13 @@ type RendererClient struct {
 	client          *http.Client
 }
 
+const rendererRequestTimeout = 20 * time.Minute
+
 func NewRendererClient(cfg config.RendererConfig) (*RendererClient, error) {
 	if strings.TrimSpace(cfg.BaseURL) == "" || len(cfg.SharedSecret) < 32 {
 		return nil, errors.New("renderer URL and a 32-character shared secret are required")
 	}
-	return &RendererClient{baseURL: strings.TrimRight(cfg.BaseURL, "/"), secret: cfg.SharedSecret, client: &http.Client{Timeout: 20 * time.Minute}}, nil
+	return &RendererClient{baseURL: strings.TrimRight(cfg.BaseURL, "/"), secret: cfg.SharedSecret, client: &http.Client{Timeout: rendererRequestTimeout}}, nil
 }
 
 func (c *RendererClient) Render(ctx context.Context, raw []byte) (RendererResult, error) {

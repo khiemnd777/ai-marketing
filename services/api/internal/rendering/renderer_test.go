@@ -48,6 +48,20 @@ func TestRendererClientSignsExactManifest(t *testing.T) {
 	}
 }
 
+func TestFinalRenderWorkerTimeoutOutlivesRendererRequest(t *testing.T) {
+	client, err := NewRendererClient(config.RendererConfig{
+		BaseURL:      "https://renderer.test",
+		SharedSecret: "renderer-test-secret-at-least-32-bytes",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerTimeout := (&Worker{}).Timeout(nil)
+	if workerTimeout <= client.client.Timeout {
+		t.Fatalf("worker timeout %s must outlive renderer request timeout %s", workerTimeout, client.client.Timeout)
+	}
+}
+
 func TestSubtitlesPreserveVietnameseAndFormat(t *testing.T) {
 	srt, vtt := subtitles([]CaptionCue{{StartMS: 1250, EndMS: 3650, Text: "Hành trình nhẹ nhàng"}})
 	if !strings.Contains(string(srt), "00:00:01,250 --> 00:00:03,650\nHành trình nhẹ nhàng") {
