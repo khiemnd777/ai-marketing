@@ -139,6 +139,8 @@ func New(cfg config.Config, logger *slog.Logger, pool *pgxpool.Pool) (*fiber.App
 	v1.Get("/health/live", operationsHandler.Liveness)
 	v1.Get("/health/ready", operationsHandler.Readiness)
 	v1.Get("/metrics", adaptor.HTTPHandler(promhttp.Handler()))
+	v1.Get("/auth/bootstrap/status", authHandler.BootstrapStatus)
+	v1.Post("/auth/bootstrap", loginLimiter.Middleware, authHandler.BootstrapAdmin)
 	v1.Post("/auth/login", loginLimiter.Middleware, authHandler.Login)
 	v1.Post("/webhooks/seedance", videoHandler.Webhook)
 	v1.Get("/meta/oauth/callback", metaConnectionHandler.Callback)

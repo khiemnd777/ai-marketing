@@ -10,6 +10,12 @@ SELECT * FROM internal_users WHERE id = sqlc.arg(id) FOR UPDATE;
 -- name: CountInternalUsers :one
 SELECT count(*) FROM internal_users;
 
+-- name: CountAdminUsers :one
+SELECT count(*) FROM internal_users WHERE role = 'ADMIN';
+
+-- name: LockInternalUsersForAdminBootstrap :exec
+LOCK TABLE internal_users IN SHARE ROW EXCLUSIVE MODE;
+
 -- name: ListInternalUsers :many
 SELECT * FROM internal_users
 ORDER BY created_at DESC, id DESC

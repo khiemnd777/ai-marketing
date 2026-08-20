@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { LoginForm } from "./login-form";
+import { AuthEntry } from "./login-form";
 
-export const metadata: Metadata = { title: "Đăng nhập nội bộ" };
+export const metadata: Metadata = { title: "Truy cập nội bộ" };
 
 function safeReturnUrl(value: string | string[] | undefined) {
   const candidate = Array.isArray(value) ? value[0] : value;
@@ -25,10 +25,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
           </div>
         </div>
         <div className="p-8 md:p-12">
-          <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-[var(--moss)]">AI Product Marketing Studio</p>
-          <h2 className="mt-3 font-serif text-3xl font-black">Đăng nhập nội bộ</h2>
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">Tài khoản do quản trị viên cấp. Không có đăng ký công khai.</p>
-          <LoginForm returnUrl={safeReturnUrl(query.returnUrl)} />
+          <AuthEntry returnUrl={safeReturnUrl(query.returnUrl)} />
         </div>
       </section>
     </main>

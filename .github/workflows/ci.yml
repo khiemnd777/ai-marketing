@@ -66,7 +66,9 @@ jobs:
       - name: Run isolated PostgreSQL 18 workflow
         env:
           STUDIO_USE_TESTCONTAINERS: "true"
-        run: go test ./internal/planning -run TestDemoPlanningWorkflowIntegration -count=1 -v
+        run: |
+          go test ./internal/auth -run TestAdminBootstrapIntegration -count=1 -v
+          go test ./internal/planning -run TestDemoPlanningWorkflowIntegration -count=1 -v
 
   migrations:
     runs-on: ubuntu-latest
@@ -134,11 +136,9 @@ jobs:
       RENDERER_BASE_URL: http://127.0.0.1:8090
       RENDERER_SHARED_SECRET: e2e-renderer-shared-secret-at-least-32-bytes
       DEMO_MODE: "true"
-      BOOTSTRAP_ADMIN_EMAIL: admin-e2e@example.com
-      BOOTSTRAP_ADMIN_NAME: E2E Administrator
-      BOOTSTRAP_ADMIN_PASSWORD: E2E-secure-password-2026
       STUDIO_TEST_EMAIL: admin-e2e@example.com
       STUDIO_TEST_PASSWORD: E2E-secure-password-2026
+      STUDIO_EXPECT_ADMIN_BOOTSTRAP: "true"
       STUDIO_WEB_URL: http://127.0.0.1:3000
     steps:
       - uses: actions/checkout@v7
@@ -207,8 +207,6 @@ jobs:
           done
       - run: atlas migrate apply --url "$DATABASE_URL" --dir file://database/migrations
       - run: go run ./cmd/migrate-river
-        working-directory: services/api
-      - run: go run ./cmd/bootstrap-admin
         working-directory: services/api
       - name: Start API
         working-directory: services/api

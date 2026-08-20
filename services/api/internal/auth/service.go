@@ -5,12 +5,14 @@ import (
 	"crypto/subtle"
 	"errors"
 	"fmt"
+	"net/mail"
 	"net/netip"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -28,6 +30,9 @@ var (
 	ErrPasswordPolicy     = errors.New("new password does not meet policy")
 	ErrConflict           = errors.New("authentication state conflict")
 	ErrSessionNotFound    = errors.New("session not found")
+	ErrBootstrapClosed    = errors.New("admin bootstrap is no longer available")
+	ErrBootstrapInput     = errors.New("invalid admin bootstrap input")
+	ErrEmailInUse         = errors.New("email is already in use")
 )
 
 type ClientMetadata struct {
@@ -57,6 +62,12 @@ type LoginResult struct {
 	ExpiresAt    time.Time
 }
 
+type BootstrapInput struct {
+	Email       string
+	DisplayName string
+	Password    string
+}
+
 type SessionInfo struct {
 	ID         uuid.UUID
 	IPAddress  string
@@ -84,6 +95,93 @@ func NewService(pool *pgxpool.Pool, secret []byte, sessionTTL time.Duration) (*S
 	return &Service{
 		pool: pool, queries: db.New(pool), secret: secret, sessionTTL: sessionTTL,
 		dummyHash: dummyHash, now: func() time.Time { return time.Now().UTC() },
+	}, nil
+}
+
+func (s *Service) BootstrapRequired(ctx context.Context) (bool, error) {
+	count, err := s.queries.CountAdminUsers(ctx)
+	if err != nil {
+		return false, fmt.Errorf("count admin users: %w", err)
+	}
+	return count == 0, nil
+}
+
+func (s *Service) BootstrapAdmin(ctx context.Context, input BootstrapInput, metadata ClientMetadata) (LoginResult, error) {
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	if _, err := mail.ParseAddress(input.Email); err != nil || len(input.Email) > 320 || len(input.DisplayName) < 2 || len(input.DisplayName) > 120 || len(input.Password) < 14 || len(input.Password) > 200 {
+		return LoginResult{}, ErrBootstrapInput
+	}
+	passwordHash, err := HashPassword(input.Password, DefaultArgon2Params)
+	if err != nil {
+		return LoginResult{}, fmt.Errorf("hash bootstrap password: %w", err)
+	}
+	sessionToken, err := NewOpaqueToken()
+	if err != nil {
+		return LoginResult{}, err
+	}
+	csrfToken, err := NewOpaqueToken()
+	if err != nil {
+		return LoginResult{}, err
+	}
+	expiresAt := s.now().Add(s.sessionTTL)
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return LoginResult{}, fmt.Errorf("begin admin bootstrap transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	queries := s.queries.WithTx(tx)
+	if err = queries.LockInternalUsersForAdminBootstrap(ctx); err != nil {
+		return LoginResult{}, fmt.Errorf("lock admin bootstrap: %w", err)
+	}
+	adminCount, err := queries.CountAdminUsers(ctx)
+	if err != nil {
+		return LoginResult{}, fmt.Errorf("count admin users for bootstrap: %w", err)
+	}
+	if adminCount != 0 {
+		return LoginResult{}, ErrBootstrapClosed
+	}
+	created, err := queries.CreateInternalUser(ctx, db.CreateInternalUserParams{
+		Email: input.Email, DisplayName: input.DisplayName, PasswordHash: passwordHash,
+		Role: db.InternalUserRoleADMIN, RequiresPasswordChange: false,
+	})
+	if err != nil {
+		var pgError *pgconn.PgError
+		if errors.As(err, &pgError) && pgError.Code == "23505" {
+			return LoginResult{}, ErrEmailInUse
+		}
+		return LoginResult{}, fmt.Errorf("create bootstrap admin: %w", err)
+	}
+	session, err := queries.CreateSession(ctx, db.CreateSessionParams{
+		InternalUserID: created.ID,
+		TokenHash:      TokenDigest(s.secret, sessionToken),
+		CsrfHash:       TokenDigest(s.secret, csrfToken),
+		IpAddress:      metadata.IPAddress,
+		UserAgent:      truncate(metadata.UserAgent, 1000),
+		ExpiresAt:      pgtype.Timestamptz{Time: expiresAt, Valid: true},
+	})
+	if err != nil {
+		return LoginResult{}, fmt.Errorf("create bootstrap session: %w", err)
+	}
+	actor := uuid.NullUUID{UUID: created.ID, Valid: true}
+	if err = audit.Record(ctx, queries, audit.Event{
+		ActorID: actor, Action: "auth.bootstrap.succeeded", EntityType: "internal_user", EntityID: actor,
+		RequestID: metadata.RequestID, IPAddress: metadata.IPAddress, UserAgent: truncate(metadata.UserAgent, 1000),
+		Outcome: "SUCCESS", After: map[string]any{"email": created.Email, "role": created.Role, "status": created.Status},
+	}); err != nil {
+		return LoginResult{}, fmt.Errorf("write admin bootstrap audit: %w", err)
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return LoginResult{}, fmt.Errorf("commit admin bootstrap: %w", err)
+	}
+	return LoginResult{
+		Principal: Principal{
+			SessionID: session.ID, UserID: created.ID, Email: created.Email, DisplayName: created.DisplayName,
+			Role: created.Role, RequiresPasswordChange: created.RequiresPasswordChange, Version: created.Version,
+			CSRFHash: session.CsrfHash, CreatedAt: created.CreatedAt.Time, UpdatedAt: created.UpdatedAt.Time,
+		},
+		SessionToken: sessionToken, CSRFToken: csrfToken, ExpiresAt: expiresAt,
 	}, nil
 }
 

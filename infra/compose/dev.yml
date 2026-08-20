@@ -2,11 +2,11 @@ name: ai-marketing-studio-dev
 
 x-app-env: &app-env
   APP_ENV: development
-  APP_URL: http://localhost:3000
+  APP_URL: ${APP_URL:-http://localhost:3300}
   DATABASE_URL: postgres://studio:studio@postgres:5432/studio?sslmode=disable
   VERTICALS_DIR: /app/verticals
   SESSION_SECRET: ${SESSION_SECRET:-dev-session-secret-change-before-shared-use-0001}
-  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-dev-encryption-key-change-before-shared-use01}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-dev-encryption-key-local-only-32}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
   OPENAI_TRANSCRIPTION_MODEL: ${OPENAI_TRANSCRIPTION_MODEL:-gpt-4o-mini-transcribe}
@@ -30,7 +30,7 @@ x-app-env: &app-env
   META_APP_ID: ${META_APP_ID:-}
   META_APP_SECRET: ${META_APP_SECRET:-}
   META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-}
-  META_REDIRECT_URL: ${META_REDIRECT_URL:-http://localhost:8080/v1/meta/oauth/callback}
+  META_REDIRECT_URL: ${META_REDIRECT_URL:-http://localhost:8180/v1/meta/oauth/callback}
   META_GRAPH_BASE_URL: ${META_GRAPH_BASE_URL:-https://graph.facebook.com}
   META_DIALOG_BASE_URL: ${META_DIALOG_BASE_URL:-https://www.facebook.com}
   RENDERER_BASE_URL: http://renderer:8090
@@ -45,9 +45,9 @@ services:
       POSTGRES_USER: studio
       POSTGRES_PASSWORD: studio
       POSTGRES_DB: studio
-    ports: ["5432:5432"]
+    ports: ["127.0.0.1:${STUDIO_POSTGRES_PORT:-55432}:5432"]
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres18-data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U studio -d studio"]
       interval: 5s
@@ -83,7 +83,7 @@ services:
     environment:
       <<: *app-env
       HTTP_ADDRESS: :8080
-    ports: ["8080:8080"]
+    ports: ["127.0.0.1:${STUDIO_API_PORT:-8180}:8080"]
     depends_on:
       river-migrate:
         condition: service_completed_successfully
@@ -118,7 +118,7 @@ services:
       R2_SECRET_ACCESS_KEY: ${R2_SECRET_ACCESS_KEY:-studio-local-secret}
       R2_BUCKET: ${R2_BUCKET:-studio-media}
       R2_ENDPOINT: ${R2_ENDPOINT:-http://minio:9000}
-    ports: ["8090:8090"]
+    ports: ["127.0.0.1:${STUDIO_RENDERER_PORT:-8190}:8090"]
     depends_on:
       minio-init:
         condition: service_completed_successfully
@@ -134,7 +134,7 @@ services:
       dockerfile: infra/docker/web.Dockerfile
     environment:
       API_URL: http://api:8080
-    ports: ["3000:3000"]
+    ports: ["127.0.0.1:${STUDIO_WEB_PORT:-3300}:3000"]
     depends_on: [api, renderer]
 
   river-ui:
@@ -144,7 +144,7 @@ services:
       RIVER_BASIC_AUTH_USER: ${RIVER_BASIC_AUTH_USER:-studio}
       RIVER_BASIC_AUTH_PASS: ${RIVER_BASIC_AUTH_PASS:-studio-local-only}
       RIVER_JOB_LIST_HIDE_ARGS_BY_DEFAULT: "true"
-    ports: ["8081:8080"]
+    ports: ["127.0.0.1:${STUDIO_RIVER_UI_PORT:-8181}:8080"]
     depends_on:
       river-migrate:
         condition: service_completed_successfully
@@ -155,7 +155,9 @@ services:
     environment:
       MINIO_ROOT_USER: studio
       MINIO_ROOT_PASSWORD: studio-local-secret
-    ports: ["9000:9000", "9001:9001"]
+    ports:
+      - "127.0.0.1:${STUDIO_MINIO_PORT:-9100}:9000"
+      - "127.0.0.1:${STUDIO_MINIO_CONSOLE_PORT:-9101}:9001"
     volumes:
       - minio-data:/data
   minio-init:
@@ -175,7 +177,10 @@ services:
     command: ["--config=/etc/otelcol/config.yml"]
     volumes:
       - ../monitoring/otel-collector.yml:/etc/otelcol/config.yml:ro
-    ports: ["4317:4317", "4318:4318", "8889:8889"]
+    ports:
+      - "127.0.0.1:${STUDIO_OTEL_GRPC_PORT:-14317}:4317"
+      - "127.0.0.1:${STUDIO_OTEL_HTTP_PORT:-14318}:4318"
+      - "127.0.0.1:${STUDIO_OTEL_METRICS_PORT:-18889}:8889"
     depends_on: [tempo]
 
   prometheus:
@@ -185,7 +190,7 @@ services:
       - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
-    ports: ["9090:9090"]
+    ports: ["127.0.0.1:${STUDIO_PROMETHEUS_PORT:-19090}:9090"]
 
   tempo:
     image: grafana/tempo:2.8.2
@@ -193,7 +198,7 @@ services:
     volumes:
       - ../monitoring/tempo.yml:/etc/tempo.yml:ro
       - tempo-data:/var/tempo
-    ports: ["3200:3200"]
+    ports: ["127.0.0.1:${STUDIO_TEMPO_PORT:-13200}:3200"]
 
   loki:
     image: grafana/loki:3.5.3
@@ -201,7 +206,7 @@ services:
     volumes:
       - ../monitoring/loki.yml:/etc/loki/local-config.yaml:ro
       - loki-data:/loki
-    ports: ["3100:3100"]
+    ports: ["127.0.0.1:${STUDIO_LOKI_PORT:-13100}:3100"]
 
   grafana:
     image: grafana/grafana:12.1.1
@@ -212,11 +217,11 @@ services:
       - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
       - ../monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
-    ports: ["3001:3000"]
+    ports: ["127.0.0.1:${STUDIO_GRAFANA_PORT:-3301}:3000"]
     depends_on: [prometheus, tempo, loki]
 
 volumes:
-  postgres-data:
+  postgres18-data:
   minio-data:
   prometheus-data:
   tempo-data:

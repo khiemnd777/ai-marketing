@@ -57,6 +57,50 @@ paths:
           $ref: '#/components/responses/Problem'
         '429':
           $ref: '#/components/responses/Problem'
+  /auth/bootstrap/status:
+    get:
+      operationId: getAdminBootstrapStatus
+      security: []
+      responses:
+        '200':
+          description: Whether the one-time Admin bootstrap UI must be shown.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminBootstrapStatus'
+        '500':
+          $ref: '#/components/responses/Problem'
+  /auth/bootstrap:
+    post:
+      operationId: bootstrapAdmin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminBootstrapRequest'
+      responses:
+        '201':
+          description: The first Admin was created and authenticated.
+          headers:
+            X-CSRF-Token:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '409':
+          description: An Admin already exists or the email belongs to another internal user.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '422':
+          $ref: '#/components/responses/Problem'
+        '429':
+          $ref: '#/components/responses/Problem'
   /auth/logout:
     post:
       operationId: logout
@@ -2181,6 +2225,31 @@ components:
         password:
           type: string
           minLength: 10
+          maxLength: 200
+    AdminBootstrapStatus:
+      type: object
+      additionalProperties: false
+      required: [required]
+      properties:
+        required:
+          type: boolean
+          description: True only when no internal user with role ADMIN exists.
+    AdminBootstrapRequest:
+      type: object
+      additionalProperties: false
+      required: [email, displayName, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 320
+        displayName:
+          type: string
+          minLength: 2
+          maxLength: 120
+        password:
+          type: string
+          minLength: 14
           maxLength: 200
     LoginResponse:
       allOf:

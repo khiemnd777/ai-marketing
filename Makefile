@@ -1,9 +1,27 @@
 SHELL := /bin/sh
 
-.PHONY: dev install generate migrate test test-race lint typecheck build verify compose-config
+.PHONY: start stop restart dev install generate migrate test test-race lint typecheck build verify compose-config
+
+ENV_FILE ?= .env.local
+COMPOSE_FILE ?= infra/compose/dev.yml
+COMPOSE = docker compose --env-file $(ENV_FILE) -f $(COMPOSE_FILE)
+APP_SERVICES = api worker renderer web
+
+start:
+	test -f "$(ENV_FILE)"
+	$(COMPOSE) up -d --wait $(APP_SERVICES)
+
+stop:
+	$(COMPOSE) down --remove-orphans
+
+restart:
+	test -f "$(ENV_FILE)"
+	$(COMPOSE) down --remove-orphans
+	$(COMPOSE) build api worker renderer web river-migrate
+	$(COMPOSE) up -d --wait $(APP_SERVICES)
 
 dev:
-	docker compose -f infra/compose/dev.yml up -d postgres minio
+	$(COMPOSE) up -d postgres minio
 	bun run dev
 
 install:
@@ -14,7 +32,7 @@ generate:
 	bun run openapi:check
 
 migrate:
-	docker compose -f infra/compose/dev.yml run --rm migrate
+	$(COMPOSE) run --rm migrate
 
 test:
 	cd services/api && GOCACHE="$$PWD/.gocache" go test ./...

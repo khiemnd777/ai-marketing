@@ -11,6 +11,7 @@ import (
 )
 
 type Querier interface {
+	CountAdminUsers(ctx context.Context) (int64, error)
 	CountInternalUsers(ctx context.Context) (int64, error)
 	CountOtherActiveAdmins(ctx context.Context, excludedID uuid.UUID) (int64, error)
 	CreateInternalUser(ctx context.Context, arg CreateInternalUserParams) (InternalUser, error)
@@ -25,6 +26,7 @@ type Querier interface {
 	ListAuditLogs(ctx context.Context, arg ListAuditLogsParams) ([]AuditLog, error)
 	ListInternalUsers(ctx context.Context, arg ListInternalUsersParams) ([]InternalUser, error)
 	LockInternalAdminUsers(ctx context.Context) ([]uuid.UUID, error)
+	LockInternalUsersForAdminBootstrap(ctx context.Context) error
 	RecordFailedLogin(ctx context.Context, arg RecordFailedLoginParams) error
 	RecordSuccessfulLogin(ctx context.Context, id uuid.UUID) error
 	RevokeAllUserSessions(ctx context.Context, arg RevokeAllUserSessionsParams) (int64, error)

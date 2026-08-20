@@ -29,6 +29,12 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
+type bootstrapRequest struct {
+	Email       string `json:"email"`
+	DisplayName string `json:"displayName"`
+	Password    string `json:"password"`
+}
+
 type changePasswordRequest struct {
 	CurrentPassword string `json:"currentPassword"`
 	NewPassword     string `json:"newPassword"`
@@ -59,6 +65,56 @@ type UserResponse struct {
 
 func NewHandler(service *Service, secureCookies bool, sessionTTL time.Duration) *Handler {
 	return &Handler{service: service, secureCookies: secureCookies, sessionTTL: sessionTTL}
+}
+
+func (h *Handler) BootstrapStatus(c fiber.Ctx) error {
+	required, err := h.service.BootstrapRequired(c.Context())
+	if err != nil {
+		return problem.Write(c, fiber.StatusInternalServerError, "internal", "Không thể kiểm tra khởi tạo", "Hệ thống chưa thể xác định trạng thái quản trị viên.")
+	}
+	return c.JSON(fiber.Map{"required": required})
+}
+
+func (h *Handler) BootstrapAdmin(c fiber.Ctx) error {
+	var input bootstrapRequest
+	if err := c.Bind().Body(&input); err != nil {
+		return problem.Write(c, fiber.StatusBadRequest, "invalid-request", "Yêu cầu không hợp lệ", "Nội dung khởi tạo quản trị viên phải là JSON hợp lệ.")
+	}
+	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
+	input.DisplayName = strings.TrimSpace(input.DisplayName)
+	fieldErrors := make([]problem.FieldError, 0, 3)
+	if _, err := mail.ParseAddress(input.Email); err != nil || len(input.Email) > 320 {
+		fieldErrors = append(fieldErrors, problem.FieldError{Field: "email", Code: "email", Message: "Email không hợp lệ"})
+	}
+	if len(input.DisplayName) < 2 || len(input.DisplayName) > 120 {
+		fieldErrors = append(fieldErrors, problem.FieldError{Field: "displayName", Code: "length", Message: "Họ tên phải có từ 2 đến 120 ký tự"})
+	}
+	if len(input.Password) < 14 || len(input.Password) > 200 {
+		fieldErrors = append(fieldErrors, problem.FieldError{Field: "password", Code: "length", Message: "Mật khẩu phải có từ 14 đến 200 ký tự"})
+	}
+	if len(fieldErrors) > 0 {
+		return problem.Write(c, fiber.StatusUnprocessableEntity, "validation", "Dữ liệu không hợp lệ", "Vui lòng kiểm tra thông tin quản trị viên.", fieldErrors...)
+	}
+	result, err := h.service.BootstrapAdmin(c.Context(), BootstrapInput{
+		Email: input.Email, DisplayName: input.DisplayName, Password: input.Password,
+	}, metadataFrom(c))
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrBootstrapClosed):
+			return problem.Write(c, fiber.StatusConflict, "admin-bootstrap-closed", "Khởi tạo quản trị viên đã đóng", "Hệ thống đã có tài khoản ADMIN. Hãy đăng nhập hoặc liên hệ quản trị viên hiện tại.")
+		case errors.Is(err, ErrEmailInUse):
+			return problem.Write(c, fiber.StatusConflict, "email-exists", "Email đã tồn tại", "Một tài khoản nội bộ đang sử dụng email này.", problem.FieldError{Field: "email", Code: "exists", Message: "Email đã được sử dụng"})
+		case errors.Is(err, ErrBootstrapInput):
+			return problem.Write(c, fiber.StatusUnprocessableEntity, "validation", "Dữ liệu không hợp lệ", "Vui lòng kiểm tra thông tin quản trị viên.")
+		default:
+			return problem.Write(c, fiber.StatusInternalServerError, "internal", "Không thể tạo quản trị viên", "Hệ thống chưa thể hoàn tất khởi tạo quản trị viên.")
+		}
+	}
+	h.setSessionCookies(c, result)
+	c.Set("X-CSRF-Token", result.CSRFToken)
+	response := principalResponse(result.Principal)
+	response.CSRFToken = result.CSRFToken
+	return c.Status(fiber.StatusCreated).JSON(response)
 }
 
 func (h *Handler) Login(c fiber.Ctx) error {

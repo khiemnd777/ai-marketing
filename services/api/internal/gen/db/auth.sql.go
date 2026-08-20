@@ -13,6 +13,17 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countAdminUsers = `-- name: CountAdminUsers :one
+SELECT count(*) FROM internal_users WHERE role = 'ADMIN'
+`
+
+func (q *Queries) CountAdminUsers(ctx context.Context) (int64, error) {
+	row := q.db.QueryRow(ctx, countAdminUsers)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countInternalUsers = `-- name: CountInternalUsers :one
 SELECT count(*) FROM internal_users
 `
@@ -376,6 +387,15 @@ func (q *Queries) LockInternalAdminUsers(ctx context.Context) ([]uuid.UUID, erro
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockInternalUsersForAdminBootstrap = `-- name: LockInternalUsersForAdminBootstrap :exec
+LOCK TABLE internal_users IN SHARE ROW EXCLUSIVE MODE
+`
+
+func (q *Queries) LockInternalUsersForAdminBootstrap(ctx context.Context) error {
+	_, err := q.db.Exec(ctx, lockInternalUsersForAdminBootstrap)
+	return err
 }
 
 const recordFailedLogin = `-- name: RecordFailedLogin :exec

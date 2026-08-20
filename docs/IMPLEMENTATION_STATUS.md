@@ -46,6 +46,14 @@ Milestones 0 through 6 and acceptance hardening gates 1 through 6 are complete f
 
 ## Validation log
 
+### Local lifecycle and first-Admin bootstrap — 2026-08-20
+
+- Added loopback-only, overridable local ports that avoid the occupied host ports `3000`, `8080`, `9001`, and `5432`: web `3300`, API `8180`, renderer `8190`, MinIO `9100`/`9101`, and PostgreSQL `55432`. PostgreSQL 18 now mounts its named volume at `/var/lib/postgresql`, matching the official 18+ image layout.
+- Added `make start`, `make stop`, and `make restart`. A real local lifecycle run confirmed that `restart` rebuilds the API, worker, renderer, web, and River migration images; recreates the stack; reapplies Atlas and River migrations; and waits for healthy services. `stop` preserves named volumes, and a subsequent `start` passed with all core services healthy.
+- Replaced environment-variable/CLI Admin bootstrap with a one-time UI on `/login`. The public status check counts only users whose role is `ADMIN`; existing Operators/Reviewers do not close bootstrap, while an existing disabled Admin does. Creation is protected by PostgreSQL table locking, creates the Admin/session/CSRF/audit event atomically, and rejects concurrent or later attempts.
+- Added OpenAPI-generated client coverage, unit tests for the login/bootstrap switch and form submission, a PostgreSQL 18 Testcontainers race/integrity workflow, and a Playwright setup project that bootstraps through the UI. Desktop and mobile browser QA confirmed the bootstrap copy, labeled inputs, validation feedback/focus, and responsive layout. No real local Admin was created during verification, so the running local stack still presents the bootstrap UI for the owner.
+- Passed the full `make verify` gate—workspace lint/typecheck/tests, production web/Go builds, and both Compose configs—using non-secret configuration-only values for the required production variables. OpenAPI generation drift and the auth race suite passed; `make restart`, `make stop`, and `make start` all passed against Docker.
+
 ### Phase 1 acceptance hardening — 2026-08-20
 
 - Replayed all Atlas migrations and River migrations on clean PostgreSQL 18, then passed the isolated Testcontainers workflow on the final tree.

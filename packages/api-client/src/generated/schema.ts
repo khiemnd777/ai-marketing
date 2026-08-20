@@ -52,6 +52,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/bootstrap/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getAdminBootstrapStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/bootstrap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["bootstrapAdmin"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/auth/logout": {
         parameters: {
             query?: never;
@@ -2967,6 +2999,16 @@ export interface components {
             email: string;
             password: string;
         };
+        AdminBootstrapStatus: {
+            /** @description True only when no internal user with role ADMIN exists. */
+            required: boolean;
+        };
+        AdminBootstrapRequest: {
+            /** Format: email */
+            email: string;
+            displayName: string;
+            password: string;
+        };
         LoginResponse: components["schemas"]["InternalUser"] & {
             csrfToken: string;
         };
@@ -3156,6 +3198,63 @@ export interface operations {
                 };
             };
             401: components["responses"]["Problem"];
+            429: components["responses"]["Problem"];
+        };
+    };
+    getAdminBootstrapStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Whether the one-time Admin bootstrap UI must be shown. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminBootstrapStatus"];
+                };
+            };
+            500: components["responses"]["Problem"];
+        };
+    };
+    bootstrapAdmin: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminBootstrapRequest"];
+            };
+        };
+        responses: {
+            /** @description The first Admin was created and authenticated. */
+            201: {
+                headers: {
+                    "X-CSRF-Token"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginResponse"];
+                };
+            };
+            /** @description An Admin already exists or the email belongs to another internal user. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["Problem"];
             429: components["responses"]["Problem"];
         };
     };

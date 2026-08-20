@@ -16,6 +16,9 @@ export default defineConfig({
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "setup", testMatch: /.*\.setup\.ts/, use: { ...devices["Desktop Chrome"] } },
+    { name: "chromium", testIgnore: /.*\.setup\.ts/, dependencies: ["setup"], use: { ...devices["Desktop Chrome"] } },
+  ],
   outputDir: "test-results/playwright",
 });
