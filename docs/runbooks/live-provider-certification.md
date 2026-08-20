@@ -2,6 +2,21 @@
 
 Run this gate from the staging network after deploying the exact release candidate and before enabling operator access. It is deliberately read-only and cannot create OpenAI/Seedance generations, publish to Meta, create or activate Ads, upload media, or render a video.
 
+## Deferred owner follow-up
+
+On 2026-08-20, the product owner accepted Phase 1 code and CI validation without a credentialed staging run and chose to perform the live-environment checks later. This deferral is not a Phase 1 implementation blocker, but the checks below remain mandatory before enabling real providers or operator access in a production-like environment.
+
+When the owner asks to review the remaining or deferred checks, inspect the current deployment and GitHub state again rather than relying on the observations recorded on 2026-08-20. Remind the owner to:
+
+- deploy the exact release candidate to an isolated staging environment with `APP_ENV=production`, `DEMO_MODE=false`, HTTPS API/web origins, a private bucket, and all migrations applied;
+- configure the staging deployment with restricted OpenAI, Seedance, R2, Meta, and renderer credentials without copying those secrets into GitHub Actions;
+- create a protected GitHub Environment named `staging`, with required reviewers and release-branch restrictions;
+- set `STAGING_CERT_API_URL` and `STAGING_CERT_WEB_URL`, optionally set `STAGING_CERT_RENDERER_URL`, and add the dedicated `STAGING_CERT_ADMIN_EMAIL` and `STAGING_CERT_ADMIN_PASSWORD` Environment secrets;
+- prepare isolated test assets/accounts, provider spend caps, callback allowlists, a rollback owner, and an explicitly authorized spend window before any chargeable provider check;
+- run the no-spend readiness gate first, then perform the six credential/workflow checks below and retain the sanitized report, release digest, operator, UTC time, and non-secret provider account/project identifiers.
+
+Never ask the owner to paste provider keys or passwords into chat, source files, shell history, logs, or CI artifacts. Use the staging platform's secret manager and GitHub Environment secrets.
+
 ## Preconditions
 
 - Use an isolated staging database and private R2 bucket. Apply all Atlas and River migrations first.
