@@ -27,6 +27,7 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run openapi:check
       - run: node --check scripts/certify-live-readiness.mjs
+      - run: bun run test:certification
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run test

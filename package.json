@@ -18,6 +18,7 @@
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun run --filter '*' test",
     "test:e2e": "bun run --filter @studio/web test:e2e",
+    "test:certification": "node --test scripts/certify-live-readiness.test.mjs",
     "certify:live": "node scripts/certify-live-readiness.mjs",
     "build": "bun run --filter '*' build",
     "openapi:check": "bun run --filter @studio/api-client generate:check"

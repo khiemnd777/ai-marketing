@@ -24,6 +24,16 @@ The command requires API/database readiness, the web login page, optional direct
 
 `STUDIO_CERT_ALLOW_INSECURE_LOCAL=true` permits HTTP only for `localhost`/loopback targets. It must not be used for a remotely accessible staging environment. If the renderer is internal-only, run the command inside the deployment network or omit `STUDIO_CERT_RENDERER_URL`; the API still has to report renderer configuration as complete.
 
+### GitHub Actions gate
+
+The manual **Staging live readiness certification** workflow runs the same read-only gate and stores its sanitized JSON report for 30 days. Before the first run, create a protected GitHub Environment named `staging`, restrict it to the release branch, add required reviewers, and configure:
+
+- Environment variables `STAGING_CERT_API_URL` and `STAGING_CERT_WEB_URL` as HTTPS origins.
+- Optional Environment variable `STAGING_CERT_RENDERER_URL` only when the GitHub runner can reach the renderer. Omit it for an internal-only renderer; API configuration is still checked.
+- Environment secrets `STAGING_CERT_ADMIN_EMAIL` and `STAGING_CERT_ADMIN_PASSWORD` for a dedicated active Admin account.
+
+The workflow does not receive OpenAI, Seedance, R2, Meta, database, or renderer secrets. Those remain only in the staging deployment. It checks out without persisted Git credentials, serializes certification runs, fails before network access when required Environment values are absent, and emits only the already-sanitized report. For a staging network that rejects GitHub-hosted runners, execute the CLI gate from an authorized host inside that network instead.
+
 ## Credential and workflow certification
 
 The automated gate proves configuration is loaded, not that every external credential still has permission. In the provider consoles or an explicitly authorized staging window, record the operator, UTC time, release digest, provider account/project identifiers (never secrets), and these results:
