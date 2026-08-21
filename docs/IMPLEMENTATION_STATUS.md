@@ -57,6 +57,13 @@ Milestones 0 through 6 and acceptance hardening gates 1 through 6 are complete f
 
 ## Validation log
 
+### Campaign progress navigation — 2026-08-21
+
+- Replaced the campaign workflow pill links with one ordered, connected progress stepper spanning Brief, Concept, Content, Script, Scenes, Quality, Composer, Publishing, and optional Meta Ads. The active route uses `aria-current="step"`, Meta Ads remains explicitly optional, and route position no longer implies completion.
+- Added a client/workspace/campaign-scoped progress read endpoint. Checks now fail closed and require persisted state: two valid campaign characters; a locked approved concept; all 14 content variants approved; current script and every scene approved; one current approved selected take per scene; a current approved selected final render; an actually published social post; and, for optional Ads, a provider-created paused/active/archived campaign. Approval-backed steps require a matching non-invalidated approval and loading/error states render no checks.
+- Synced the generated TypeScript client from OpenAPI and invalidated the progress query after brief, character, concept, content, script, scene, and AI-generation mutations; asynchronous video/render/publishing/Ads steps poll the single progress summary only while their current step is incomplete.
+- Passed repository lint, strict typecheck, all 44 Web tests, all Go API tests, OpenAPI generation check, production builds, and `git diff --check`. The read-only PostgreSQL integration test passed against local data and verified cross-workspace lookup failure. `make restart` rebuilt the local images and left API, worker, renderer, Web, PostgreSQL, and MinIO healthy; the reported campaign currently has no characters, concept, content, script, or scenes, so every step correctly remains unchecked.
+
 ### Web container vertical-pack packaging — 2026-08-21
 
 - Fixed the development Web image build after the guided-options work introduced a compile-time import from `verticals/travel-luggage/asset-requirements.json`. Host builds passed because the repository tree was present, but `infra/docker/web.Dockerfile` copied only the Web app, packages and OpenAPI into its isolated build stage.

@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, LockKeyhole, Save, X } from "lucide-react";
 import { Suspense, useState } from "react";
 import { usePermissions } from "@/components/auth-context";
-import { CampaignHeader, GenerationPanel, useCampaignRoute } from "@/components/campaign-workflow";
+import { CampaignHeader, GenerationPanel, campaignProgressQueryKey, useCampaignRoute } from "@/components/campaign-workflow";
 import { Badge, Button, Card, Field, SkeletonRows, StatePanel, inputClass, textareaClass } from "@/components/ui";
 import { api } from "@/lib/api";
 import { environmentOptions, productPlacementOptions } from "@/lib/form-options";
@@ -20,7 +20,7 @@ function Concepts() {
   const scope = useCampaignRoute();
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ["concepts", scope.campaignId], enabled: !!scope.clientId && !!scope.workspaceId, queryFn: async () => { const { data, error } = await api.GET("/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/concepts", { params: { path: scope } }); if (error || !data) throw apiError(error, "Không thể tải concept."); return data; } });
-  const refresh = () => qc.invalidateQueries({ queryKey: ["concepts", scope.campaignId] });
+  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ["concepts", scope.campaignId] }), qc.invalidateQueries({ queryKey: campaignProgressQueryKey(scope) })]);
   return <CampaignHeader active="/concepts" title="Concept Generator" description="So sánh các concept có cấu trúc, chỉnh sửa theo phiên bản, duyệt rồi khóa đúng một concept trước khi tạo content và script.">
     <datalist id="concept-environment-options">{environmentOptions.map((option) => <option key={option.value} value={option.value} />)}</datalist><datalist id="concept-product-placement-options">{productPlacementOptions.map((option) => <option key={option.value} value={option.value} />)}</datalist>
     <GenerationPanel operation="CONCEPTS" />

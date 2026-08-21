@@ -79,6 +79,17 @@ type Input struct {
 	Version               int64      `json:"version"`
 }
 
+type ProgressStep struct {
+	Key       string `json:"key"`
+	Completed bool   `json:"completed"`
+	Optional  bool   `json:"optional"`
+}
+
+type Progress struct {
+	CampaignID uuid.UUID      `json:"campaignId"`
+	Steps      []ProgressStep `json:"steps"`
+}
+
 type Service struct{ pool *pgxpool.Pool }
 
 func NewService(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
@@ -104,6 +115,85 @@ func (s *Service) List(ctx context.Context, clientID, workspaceID uuid.UUID, sea
 
 func (s *Service) Get(ctx context.Context, clientID, workspaceID, id uuid.UUID) (Campaign, error) {
 	return scan(s.pool.QueryRow(ctx, `SELECT `+columns+` FROM campaigns c JOIN campaign_versions v ON v.campaign_id=c.id AND v.version=c.current_version WHERE c.id=$1 AND c.client_id=$2 AND c.workspace_id=$3`, id, clientID, workspaceID))
+}
+
+func (s *Service) GetProgress(ctx context.Context, clientID, workspaceID, id uuid.UUID) (Progress, error) {
+	return getProgress(ctx, s.pool, clientID, workspaceID, id)
+}
+
+type progressQueryer interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func getProgress(ctx context.Context, queryer progressQueryer, clientID, workspaceID, id uuid.UUID) (Progress, error) {
+	completed := make([]bool, 9)
+	err := queryer.QueryRow(ctx, `SELECT
+		(SELECT count(*)=2
+		 FROM campaign_characters selection
+		 JOIN characters character ON character.id=selection.character_id
+		 WHERE selection.campaign_id=c.id
+		   AND character.status='ACTIVE'
+		   AND character.consent_status IN ('NOT_REQUIRED','APPROVED')
+		   AND (character.client_id IS NULL OR (character.client_id=c.client_id AND character.workspace_id=c.workspace_id))),
+		EXISTS(
+			SELECT 1 FROM campaign_concepts concept
+			WHERE concept.id=c.selected_concept_id AND concept.campaign_id=c.id AND concept.status='LOCKED'
+			  AND EXISTS(SELECT 1 FROM approvals approval WHERE approval.client_id=c.client_id AND approval.workspace_id=c.workspace_id AND approval.campaign_id=c.id AND approval.entity_type='CONCEPT' AND approval.entity_id=concept.id AND approval.entity_hash=concept.output_hash AND approval.status='APPROVED' AND approval.invalidated_at IS NULL)
+		),
+		(SELECT count(*)=14 FROM campaign_content_variants content WHERE content.campaign_id=c.id AND content.client_id=c.client_id AND content.workspace_id=c.workspace_id)
+		AND NOT EXISTS(
+			SELECT 1 FROM campaign_content_variants content
+			WHERE content.campaign_id=c.id AND content.client_id=c.client_id AND content.workspace_id=c.workspace_id
+			  AND (content.status<>'APPROVED' OR NOT EXISTS(SELECT 1 FROM approvals approval WHERE approval.client_id=c.client_id AND approval.workspace_id=c.workspace_id AND approval.campaign_id=c.id AND approval.entity_type='CONTENT_VARIANT' AND approval.entity_id=content.id AND approval.entity_version=content.version AND approval.entity_hash=content.content_hash AND approval.status='APPROVED' AND approval.invalidated_at IS NULL))
+		),
+		EXISTS(
+			SELECT 1 FROM scripts script
+			WHERE script.campaign_id=c.id AND script.client_id=c.client_id AND script.workspace_id=c.workspace_id AND script.status='APPROVED'
+			  AND EXISTS(SELECT 1 FROM approvals approval WHERE approval.client_id=c.client_id AND approval.workspace_id=c.workspace_id AND approval.campaign_id=c.id AND approval.entity_type='SCRIPT' AND approval.entity_id=script.id AND approval.entity_version=script.version AND approval.entity_hash=script.script_hash AND approval.status='APPROVED' AND approval.invalidated_at IS NULL)
+		),
+		EXISTS(SELECT 1 FROM scenes scene WHERE scene.campaign_id=c.id AND scene.client_id=c.client_id AND scene.workspace_id=c.workspace_id)
+		AND NOT EXISTS(
+			SELECT 1 FROM scenes scene
+			WHERE scene.campaign_id=c.id AND scene.client_id=c.client_id AND scene.workspace_id=c.workspace_id
+			  AND (scene.status<>'APPROVED' OR NOT EXISTS(SELECT 1 FROM approvals approval WHERE approval.client_id=c.client_id AND approval.workspace_id=c.workspace_id AND approval.campaign_id=c.id AND approval.entity_type='SCENE' AND approval.entity_id=scene.id AND approval.entity_version=scene.version AND approval.entity_hash=scene.scene_hash AND approval.status='APPROVED' AND approval.invalidated_at IS NULL))
+		),
+		EXISTS(SELECT 1 FROM scenes scene WHERE scene.campaign_id=c.id AND scene.client_id=c.client_id AND scene.workspace_id=c.workspace_id)
+		AND NOT EXISTS(
+			SELECT 1 FROM scenes scene
+			LEFT JOIN scene_generation_tasks generation ON generation.id=scene.selected_generation_task_id AND generation.scene_id=scene.id AND generation.campaign_id=c.id AND generation.client_id=c.client_id AND generation.workspace_id=c.workspace_id
+			WHERE scene.campaign_id=c.id AND scene.client_id=c.client_id AND scene.workspace_id=c.workspace_id
+			  AND (generation.id IS NULL OR generation.scene_version<>scene.current_version OR generation.status<>'APPROVED' OR NOT EXISTS(SELECT 1 FROM approvals approval WHERE approval.client_id=c.client_id AND approval.workspace_id=c.workspace_id AND approval.campaign_id=c.id AND approval.entity_type='SCENE_GENERATION' AND approval.entity_id=generation.id AND approval.entity_hash=generation.request_hash AND approval.status='APPROVED' AND approval.invalidated_at IS NULL))
+		),
+		EXISTS(
+			SELECT 1 FROM video_projects project
+			JOIN render_jobs render ON render.id=project.selected_render_job_id AND render.video_project_id=project.id
+			WHERE project.campaign_id=c.id AND project.client_id=c.client_id AND project.workspace_id=c.workspace_id
+			  AND render.campaign_id=c.id AND render.client_id=c.client_id AND render.workspace_id=c.workspace_id
+			  AND render.video_project_version=project.current_version AND render.status='APPROVED'
+			  AND EXISTS(SELECT 1 FROM approvals approval WHERE approval.client_id=c.client_id AND approval.workspace_id=c.workspace_id AND approval.campaign_id=c.id AND approval.entity_type='FINAL_RENDER' AND approval.entity_id=render.id AND approval.entity_hash=render.output_hash AND approval.status='APPROVED' AND approval.invalidated_at IS NULL)
+		),
+		EXISTS(SELECT 1 FROM social_posts post WHERE post.campaign_id=c.id AND post.client_id=c.client_id AND post.workspace_id=c.workspace_id AND post.status='PUBLISHED' AND post.provider_post_id IS NOT NULL),
+		EXISTS(SELECT 1 FROM ad_campaigns ad WHERE ad.campaign_id=c.id AND ad.client_id=c.client_id AND ad.workspace_id=c.workspace_id AND ad.status IN ('PAUSED','ACTIVE','ARCHIVED') AND ad.provider_campaign_id IS NOT NULL)
+	FROM campaigns c
+	WHERE c.id=$1 AND c.client_id=$2 AND c.workspace_id=$3`, id, clientID, workspaceID).Scan(
+		&completed[0], &completed[1], &completed[2], &completed[3], &completed[4], &completed[5], &completed[6], &completed[7], &completed[8],
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Progress{}, ErrNotFound
+	}
+	if err != nil {
+		return Progress{}, err
+	}
+	return newProgress(id, completed), nil
+}
+
+func newProgress(campaignID uuid.UUID, completed []bool) Progress {
+	keys := [...]string{"BRIEF", "CONCEPT", "CONTENT", "SCRIPT", "SCENES", "QUALITY", "COMPOSER", "PUBLISHING", "ADS"}
+	steps := make([]ProgressStep, len(keys))
+	for index, key := range keys {
+		steps[index] = ProgressStep{Key: key, Completed: index < len(completed) && completed[index], Optional: key == "ADS"}
+	}
+	return Progress{CampaignID: campaignID, Steps: steps}
 }
 
 func (s *Service) Create(ctx context.Context, clientID, workspaceID uuid.UUID, input Input, actor auth.Principal, metadata auth.ClientMetadata) (Campaign, error) {

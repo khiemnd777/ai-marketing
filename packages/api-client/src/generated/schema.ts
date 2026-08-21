@@ -860,6 +860,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                campaignId: components["parameters"]["CampaignId"];
+            };
+            cookie?: never;
+        };
+        get: operations["getCampaignProgress"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/duplicate": {
         parameters: {
             query?: never;
@@ -2202,6 +2222,17 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             updatedAt: string;
+        };
+        CampaignProgressStep: {
+            /** @enum {string} */
+            key: "BRIEF" | "CONCEPT" | "CONTENT" | "SCRIPT" | "SCENES" | "QUALITY" | "COMPOSER" | "PUBLISHING" | "ADS";
+            completed: boolean;
+            optional: boolean;
+        };
+        CampaignProgress: {
+            /** Format: uuid */
+            campaignId: string;
+            steps: components["schemas"]["CampaignProgressStep"][];
         };
         CharacterInput: {
             name: string;
@@ -5075,6 +5106,31 @@ export interface operations {
                 };
             };
             409: components["responses"]["Problem"];
+        };
+    };
+    getCampaignProgress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                campaignId: components["parameters"]["CampaignId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Persisted completion state for every campaign workflow step. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CampaignProgress"];
+                };
+            };
+            404: components["responses"]["Problem"];
         };
     };
     duplicateCampaign: {

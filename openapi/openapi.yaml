@@ -586,6 +586,13 @@ paths:
       responses:
         '200': { description: New campaign brief version., content: { application/json: { schema: { $ref: '#/components/schemas/Campaign' } } } }
         '409': { $ref: '#/components/responses/Problem' }
+  /clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/progress:
+    parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/CampaignId' }]
+    get:
+      operationId: getCampaignProgress
+      responses:
+        '200': { description: Persisted completion state for every campaign workflow step., content: { application/json: { schema: { $ref: '#/components/schemas/CampaignProgress' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
   /clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/duplicate:
     parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/CampaignId' }]
     post:
@@ -1376,6 +1383,25 @@ components:
             selectedConceptId: { type: [string, 'null'], format: uuid }
             createdAt: { type: string, format: date-time }
             updatedAt: { type: string, format: date-time }
+    CampaignProgressStep:
+      type: object
+      additionalProperties: false
+      required: [key, completed, optional]
+      properties:
+        key: { type: string, enum: [BRIEF, CONCEPT, CONTENT, SCRIPT, SCENES, QUALITY, COMPOSER, PUBLISHING, ADS] }
+        completed: { type: boolean }
+        optional: { type: boolean }
+    CampaignProgress:
+      type: object
+      additionalProperties: false
+      required: [campaignId, steps]
+      properties:
+        campaignId: { type: string, format: uuid }
+        steps:
+          type: array
+          minItems: 9
+          maxItems: 9
+          items: { $ref: '#/components/schemas/CampaignProgressStep' }
     CharacterInput:
       type: object
       additionalProperties: false

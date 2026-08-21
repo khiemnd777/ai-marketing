@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Save } from "lucide-react";
 import { Suspense, useState } from "react";
 import { usePermissions } from "@/components/auth-context";
-import { CampaignHeader, GenerationPanel, useCampaignRoute } from "@/components/campaign-workflow";
+import { CampaignHeader, GenerationPanel, campaignProgressQueryKey, useCampaignRoute } from "@/components/campaign-workflow";
 import { Badge, Button, Card, Field, SkeletonRows, StatePanel, inputClass, textareaClass } from "@/components/ui";
 import { api } from "@/lib/api";
 import { includeCurrentOption } from "@/lib/form-options";
@@ -21,7 +21,7 @@ function ScriptEditor() {
   const query = useQuery({ queryKey: ["campaign-script", scope.campaignId], enabled: !!scope.clientId && !!scope.workspaceId, retry: false, queryFn: async () => { const { data, error } = await api.GET("/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/script", { params: { path: scope } }); if (error || !data) throw apiError(error, "Campaign chưa có script."); return data; } });
   const [draftOverride, setDraft] = useState<ScriptOutput | null>(null);
   const draft = draftOverride ?? query.data?.output ?? null;
-  const refresh = async () => { setDraft(null); await qc.invalidateQueries({ queryKey: ["campaign-script", scope.campaignId] }); await qc.invalidateQueries({ queryKey: ["campaign", scope.clientId, scope.workspaceId, scope.campaignId] }); };
+  const refresh = async () => { setDraft(null); await Promise.all([qc.invalidateQueries({ queryKey: ["campaign-script", scope.campaignId] }), qc.invalidateQueries({ queryKey: ["campaign", scope.clientId, scope.workspaceId, scope.campaignId] }), qc.invalidateQueries({ queryKey: campaignProgressQueryKey(scope) })]); };
   const update = useMutation({ mutationFn: async () => { if (!query.data || !draft) throw new Error("Script chưa sẵn sàng."); const { data, error } = await api.PUT("/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/script", { params: { path: scope }, body: { output: draft, version: query.data.version } }); if (error || !data) throw apiError(error, "Script không đạt Product Truth, thời lượng hoặc quy tắc hai nhân vật."); return data; }, onSuccess: refresh });
   const approve = useMutation({ mutationFn: async () => { if (!query.data) throw new Error("Script chưa sẵn sàng."); const { data, error } = await api.POST("/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/script/approve", { params: { path: scope }, body: { version: query.data.version, notes: "Đã duyệt ngôn ngữ, thời lượng và Product Truth" } }); if (error || !data) throw apiError(error, "Không thể duyệt script."); return data; }, onSuccess: refresh });
   const change = <K extends keyof ScriptOutput>(key: K, value: ScriptOutput[K]) => setDraft((current) => ({ ...(current ?? query.data!.output), [key]: value }));

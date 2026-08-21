@@ -4,7 +4,7 @@ import type { components } from "@studio/api-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Suspense, useState } from "react";
 import { usePermissions } from "@/components/auth-context";
-import { CampaignHeader, useCampaignRoute } from "@/components/campaign-workflow";
+import { CampaignHeader, campaignProgressQueryKey, useCampaignRoute } from "@/components/campaign-workflow";
 import { Badge, Button, Card, Field, SkeletonRows, StatePanel, inputClass, textareaClass } from "@/components/ui";
 import { api } from "@/lib/api";
 import { countryOptions, currencyOptions, includeCurrentOption, marketOptions } from "@/lib/form-options";
@@ -30,8 +30,8 @@ function CampaignBrief() {
   const form = formOverride ?? (campaign.data ? toInput(campaign.data) : null);
   const primary = primaryOverride ?? selection.data?.primary.id ?? "";
   const listener = listenerOverride ?? selection.data?.listener.id ?? "";
-  const update = useMutation({ mutationFn: async (body: CampaignInput) => { const { data, error } = await api.PUT("/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}", { params: { path: scope }, body }); if (error || !data) throw apiError(error, "Không thể lưu brief."); return data; }, onSuccess: async () => { setFormOverride(null); await qc.invalidateQueries({ queryKey: ["campaign", scope.clientId, scope.workspaceId, scope.campaignId] }); } });
-  const select = useMutation({ mutationFn: async () => { const { data, error } = await api.PUT("/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/characters", { params: { path: scope }, body: { primaryCharacterId: primary, listenerCharacterId: listener } }); if (error || !data) throw apiError(error, "Không thể lưu cặp nhân vật."); return data; }, onSuccess: async () => { setPrimary(null); setListener(null); await qc.invalidateQueries({ queryKey: ["campaign-characters", scope.campaignId] }); } });
+  const update = useMutation({ mutationFn: async (body: CampaignInput) => { const { data, error } = await api.PUT("/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}", { params: { path: scope }, body }); if (error || !data) throw apiError(error, "Không thể lưu brief."); return data; }, onSuccess: async () => { setFormOverride(null); await Promise.all([qc.invalidateQueries({ queryKey: ["campaign", scope.clientId, scope.workspaceId, scope.campaignId] }), qc.invalidateQueries({ queryKey: campaignProgressQueryKey(scope) })]); } });
+  const select = useMutation({ mutationFn: async () => { const { data, error } = await api.PUT("/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/characters", { params: { path: scope }, body: { primaryCharacterId: primary, listenerCharacterId: listener } }); if (error || !data) throw apiError(error, "Không thể lưu cặp nhân vật."); return data; }, onSuccess: async () => { setPrimary(null); setListener(null); await Promise.all([qc.invalidateQueries({ queryKey: ["campaign-characters", scope.campaignId] }), qc.invalidateQueries({ queryKey: campaignProgressQueryKey(scope) })]); } });
   const change = <K extends keyof CampaignInput>(key: K, value: CampaignInput[K]) => setFormOverride((current) => ({ ...(current ?? toInput(campaign.data!)), [key]: value }));
   return <CampaignHeader active="" title="Campaign brief" description="Brief là đầu vào có phiên bản. Mỗi thay đổi sẽ vô hiệu hóa concept, nội dung, script và cảnh đã duyệt ở phía sau.">
     {campaign.isLoading || !form ? <SkeletonRows /> : campaign.error ? <StatePanel title="Không thể tải brief" tone="danger">{campaign.error.message}</StatePanel> : <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,.6fr)]">

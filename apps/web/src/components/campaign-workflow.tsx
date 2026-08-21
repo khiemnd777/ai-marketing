@@ -2,9 +2,9 @@
 
 import type { components } from "@studio/api-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, CircleDollarSign, RefreshCw } from "lucide-react";
+import { Bot, Check, CircleDollarSign, RefreshCw } from "lucide-react";
 import Link from "next/link";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { usePermissions } from "@/components/auth-context";
 import { useScopedEntityId, useStudioScope } from "@/components/studio-scope";
 import { Badge, Button, Card, PageHeader, StatePanel } from "@/components/ui";
@@ -20,20 +20,73 @@ export function useCampaignRoute() {
   return { campaignId: useScopedEntityId("campaignId"), clientId, workspaceId };
 }
 
+type CampaignProgressStepKey = components["schemas"]["CampaignProgressStep"]["key"];
+
 const tabs = [
-  ["", "Brief"],
-  ["/concepts", "Concept"],
-  ["/content", "Nội dung"],
-  ["/script", "Kịch bản"],
-  ["/scenes", "Cảnh quay"],
-  ["/quality", "Quality"],
-  ["/composer", "Composer"],
-  ["/publishing", "Xuất bản"],
-  ["/ads", "Meta Ads"],
+  { key: "BRIEF", suffix: "", label: "Brief" },
+  { key: "CONCEPT", suffix: "/concepts", label: "Concept" },
+  { key: "CONTENT", suffix: "/content", label: "Nội dung" },
+  { key: "SCRIPT", suffix: "/script", label: "Kịch bản" },
+  { key: "SCENES", suffix: "/scenes", label: "Cảnh quay" },
+  { key: "QUALITY", suffix: "/quality", label: "Quality" },
+  { key: "COMPOSER", suffix: "/composer", label: "Composer" },
+  { key: "PUBLISHING", suffix: "/publishing", label: "Xuất bản" },
+  { key: "ADS", suffix: "/ads", label: "Meta Ads" },
 ] as const;
 
-export function CampaignTabs({ campaignId, clientId, workspaceId, active }: { campaignId: string; clientId: string; workspaceId: string; active: string }) {
-  return <nav className="mb-7 flex gap-2 overflow-x-auto pb-1" aria-label="Campaign workflow">{tabs.map(([suffix, label]) => <Link key={suffix} href={studioRoutes.campaign(clientId, workspaceId, campaignId, suffix)} className={cn("whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold", active === suffix ? "bg-[var(--lime)] text-[var(--ink)]" : "bg-white text-[var(--muted)] ring-1 ring-[var(--line)] hover:text-[var(--ink)]")}>{label}</Link>)}</nav>;
+export function campaignProgressQueryKey({ campaignId, clientId, workspaceId }: { campaignId: string; clientId: string; workspaceId: string }) {
+  return ["campaign-progress", clientId, workspaceId, campaignId] as const;
+}
+
+export function CampaignTabs({ campaignId, clientId, workspaceId, active, completedSteps = new Set() }: { campaignId: string; clientId: string; workspaceId: string; active: string; completedSteps?: ReadonlySet<CampaignProgressStepKey> }) {
+  const activeIndex = tabs.findIndex(({ suffix }) => suffix === active);
+  const currentStepRef = useRef<HTMLAnchorElement>(null);
+
+  useEffect(() => {
+    currentStepRef.current?.scrollIntoView?.({ block: "nearest", inline: "center" });
+  }, [active]);
+
+  return <nav className="mb-7 overflow-x-auto pb-2" aria-label="Tiến trình campaign">
+    <ol className="flex min-w-[54rem] items-start px-0.5">
+      {tabs.map(({ key, suffix, label }, index) => {
+        const isCurrent = index === activeIndex;
+        const isPast = activeIndex >= 0 && index < activeIndex;
+        const isCompleted = completedSteps.has(key);
+        const isOptional = key === "ADS";
+
+        return <li key={suffix} className="relative min-w-0 flex-1">
+          <Link
+            ref={isCurrent ? currentStepRef : undefined}
+            href={studioRoutes.campaign(clientId, workspaceId, campaignId, suffix)}
+            aria-current={isCurrent ? "step" : undefined}
+            data-completed={isCompleted ? "true" : "false"}
+            className={cn(
+              "group relative z-10 mx-auto flex min-h-[4.75rem] w-fit min-w-20 flex-col items-center gap-1.5 rounded-2xl px-2 py-1.5 text-center text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ink)] focus-visible:ring-offset-2",
+              isCurrent && "bg-white text-[var(--ink)] ring-1 ring-[var(--line)]",
+              !isCurrent && isCompleted && "text-[var(--moss)] hover:bg-[#edf0e7]",
+              !isCurrent && !isCompleted && "text-[var(--muted)] hover:bg-white hover:text-[var(--ink)]",
+              isOptional && !isCurrent && "ring-1 ring-dashed ring-[var(--line)]",
+            )}
+          >
+            <span className={cn(
+              "grid size-8 shrink-0 place-items-center rounded-full border text-xs",
+              isCompleted && "border-[var(--moss)] bg-[var(--moss)] text-white",
+              isCurrent && !isCompleted && "border-[var(--ink)] bg-[var(--lime)] text-[var(--ink)]",
+              !isCurrent && !isCompleted && "border-[var(--line)] bg-white text-[var(--muted)] group-hover:border-[var(--muted)]",
+            )} aria-hidden="true">
+              {isCompleted ? <Check className="size-4 stroke-[2.5]" /> : index + 1}
+            </span>
+            <span className="whitespace-nowrap">{label}</span>
+            {isOptional ? <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide", isCurrent ? "bg-[var(--ink)]/10 text-[var(--ink)]" : "bg-[#edf0e7] text-[var(--muted)]")}>Tùy chọn</span> : null}
+            {isCompleted ? <span className="sr-only">Đã hoàn tất</span> : null}
+            {isPast ? <span className="sr-only">Bước trước</span> : null}
+            {isCurrent ? <span className="sr-only">Bước hiện tại</span> : null}
+          </Link>
+          {index < tabs.length - 1 ? <span aria-hidden="true" className={cn("absolute left-[calc(50%+1rem)] top-[1.3rem] h-0.5 w-[calc(100%-2rem)] rounded-full", isCompleted ? "bg-[var(--moss)]" : "bg-[var(--line)]")} /> : null}
+        </li>;
+      })}
+    </ol>
+  </nav>;
 }
 
 export function CampaignHeader({ active, title, description, children }: { active: string; title: string; description: string; children?: ReactNode }) {
@@ -43,9 +96,25 @@ export function CampaignHeader({ active, title, description, children }: { activ
     enabled: !!scope.clientId && !!scope.workspaceId && !!scope.campaignId,
     queryFn: async () => { const { data, error } = await api.GET("/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}", { params: { path: scope } }); if (error || !data) throw apiError(error, "Không thể tải campaign."); return data; },
   });
+  const progress = useQuery({
+    queryKey: campaignProgressQueryKey(scope),
+    enabled: !!scope.clientId && !!scope.workspaceId && !!scope.campaignId,
+    queryFn: async () => { const { data, error } = await api.GET("/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/progress", { params: { path: scope } }); if (error || !data) throw apiError(error, "Không thể kiểm tra tiến trình campaign."); return data; },
+    refetchInterval: (query) => {
+      const currentKey = tabs.find(({ suffix }) => suffix === active)?.key;
+      const needsAsyncRefresh = currentKey && ["SCENES", "QUALITY", "COMPOSER", "PUBLISHING", "ADS"].includes(currentKey);
+      const currentCompleted = query.state.data?.steps.find((step) => step.key === currentKey)?.completed;
+      return needsAsyncRefresh && !currentCompleted ? 2500 : false;
+    },
+  });
+  const completedSteps = progress.data && !progress.error
+    ? new Set(progress.data.steps.filter((step) => step.completed).map((step) => step.key))
+    : new Set<CampaignProgressStepKey>();
   if (!scope.clientId || !scope.workspaceId) return <StatePanel title="Chưa chọn workspace">Mở campaign từ danh sách trong một workspace để giữ đúng phạm vi dữ liệu.</StatePanel>;
   return <><PageHeader eyebrow={campaign.data ? `${campaign.data.name} · ${campaign.data.status}` : "Campaign Builder"} title={title} description={description} />
-    <CampaignTabs {...scope} active={active} />
+    <CampaignTabs {...scope} active={active} completedSteps={completedSteps} />
+    {progress.isPending ? <span className="sr-only" role="status">Đang kiểm tra tiến trình campaign.</span> : null}
+    {progress.error ? <span className="sr-only" role="status">Không thể kiểm tra tiến trình; chưa đánh dấu bước nào hoàn tất.</span> : null}
     {campaign.error ? <StatePanel title="Không thể tải campaign" tone="danger">{campaign.error.message}</StatePanel> : children}
   </>;
 }
@@ -79,8 +148,11 @@ export function GenerationPanel({ operation }: { operation: GenerationOperation 
       SCRIPT: "campaign-script",
       SCENES: "campaign-scenes",
     }[operation];
-    void queryClient.invalidateQueries({ queryKey: [resultKey, scope.campaignId] });
-  }, [latest?.id, latest?.status, operation, queryClient, scope.campaignId]);
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: [resultKey, scope.campaignId] }),
+      queryClient.invalidateQueries({ queryKey: campaignProgressQueryKey({ campaignId: scope.campaignId, clientId: scope.clientId, workspaceId: scope.workspaceId }) }),
+    ]);
+  }, [latest?.id, latest?.status, operation, queryClient, scope.campaignId, scope.clientId, scope.workspaceId]);
   const running = latest?.status === "QUEUED" || latest?.status === "RUNNING";
   return <Card className="mb-6 flex flex-col gap-4 p-5 md:flex-row md:items-center">
     <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-[#edf0e7]"><Bot className="size-5 text-[var(--moss)]" /></span>

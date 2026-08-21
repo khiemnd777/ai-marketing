@@ -172,6 +172,7 @@ func New(cfg config.Config, logger *slog.Logger, pool *pgxpool.Pool) (*fiber.App
 	protected.Delete("/clients/:clientId/workspaces/:workspaceId/media-assets/:assetId", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleOPERATOR), mediaHandler.Delete)
 	protected.Get("/clients/:clientId/workspaces/:workspaceId/campaigns", campaignHandler.List)
 	protected.Get("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId", campaignHandler.Get)
+	protected.Get("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId/progress", campaignHandler.GetProgress)
 	protected.Post("/clients/:clientId/workspaces/:workspaceId/campaigns", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleOPERATOR), campaignHandler.Create)
 	protected.Put("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleOPERATOR), campaignHandler.Update)
 	protected.Post("/clients/:clientId/workspaces/:workspaceId/campaigns/:campaignId/duplicate", auth.RequireRole(db.InternalUserRoleADMIN, db.InternalUserRoleOPERATOR), campaignHandler.Duplicate)

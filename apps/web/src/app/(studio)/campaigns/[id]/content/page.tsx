@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Save } from "lucide-react";
 import { Suspense, useState } from "react";
 import { usePermissions } from "@/components/auth-context";
-import { CampaignHeader, GenerationPanel, useCampaignRoute } from "@/components/campaign-workflow";
+import { CampaignHeader, GenerationPanel, campaignProgressQueryKey, useCampaignRoute } from "@/components/campaign-workflow";
 import { Badge, Button, Card, SkeletonRows, StatePanel, textareaClass } from "@/components/ui";
 import { api } from "@/lib/api";
 import { apiError } from "@/lib/problem";
@@ -17,7 +17,7 @@ function Content() {
   const scope = useCampaignRoute();
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ["campaign-content", scope.campaignId], enabled: !!scope.clientId && !!scope.workspaceId, queryFn: async () => { const { data, error } = await api.GET("/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/content", { params: { path: scope } }); if (error || !data) throw apiError(error, "Không thể tải nội dung."); return data; } });
-  const refresh = () => qc.invalidateQueries({ queryKey: ["campaign-content", scope.campaignId] });
+  const refresh = () => Promise.all([qc.invalidateQueries({ queryKey: ["campaign-content", scope.campaignId] }), qc.invalidateQueries({ queryKey: campaignProgressQueryKey(scope) })]);
   return <CampaignHeader active="/content" title="AI Content" description="Mười bốn biến thể bắt buộc được kiểm tra chung với Product Truth. Sửa một biến thể tạo version mới và vô hiệu hóa approval cũ."><GenerationPanel operation="CONTENT" />{query.isLoading ? <SkeletonRows /> : query.error ? <StatePanel title="Không thể tải nội dung" tone="danger">{query.error.message}</StatePanel> : query.data?.items.length === 0 ? <StatePanel title="Chưa có nội dung">Khóa một concept rồi chạy AI content để tạo đủ 14 biến thể.</StatePanel> : <div className="grid gap-4 lg:grid-cols-2">{query.data?.items.map((item) => <VariantCard key={item.id} item={item} scope={scope} onChanged={refresh} />)}</div>}</CampaignHeader>;
 }
 

@@ -58,6 +58,18 @@ func (h *Handler) Get(c fiber.Ctx) error {
 	return c.JSON(item)
 }
 
+func (h *Handler) GetProgress(c fiber.Ctx) error {
+	a, b, id, err := campaignScope(c, true)
+	if err != nil {
+		return writeError(c, err)
+	}
+	progress, err := h.service.GetProgress(c.Context(), a, b, id)
+	if err != nil {
+		return writeError(c, err)
+	}
+	return c.JSON(progress)
+}
+
 func (h *Handler) Create(c fiber.Ctx) error {
 	if strings.TrimSpace(c.Get("Idempotency-Key")) == "" {
 		return problem.Write(c, 400, "idempotency-key", "Thiếu khóa chống trùng", "Idempotency-Key là bắt buộc.")
