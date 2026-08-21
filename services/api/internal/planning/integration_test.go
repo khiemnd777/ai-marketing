@@ -34,6 +34,7 @@ import (
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/characters"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/gen/db"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/jobs"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/media"
 	metaprovider "github.com/internal/ai-product-marketing-studio/services/api/internal/meta"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/metaads"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/metaconnections"
@@ -159,8 +160,69 @@ func TestDemoPlanningWorkflowIntegration(t *testing.T) {
 	if totalDuration != 30 {
 		t.Fatalf("scene duration total=%d, want 30", totalDuration)
 	}
-	if _, err = service.ApproveScene(ctx, clientID, workspaceID, campaign.ID, scenes[0].ID, scenes[0].Version, "integration review", principal); err != nil {
+	productReferenceID := uuid.New()
+	if _, err = pool.Exec(ctx, `INSERT INTO media_assets(id,client_id,workspace_id,asset_type,category,name,status,usage_rights,created_by,updated_by)VALUES($1,$2,$3,'IMAGE','HERO_IMAGE','Integration product hero','APPROVED','Integration fixture',$4,$4)`, productReferenceID, clientID, workspaceID, actorID); err != nil {
+		t.Fatalf("seed product reference: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO media_asset_versions(media_asset_id,client_id,workspace_id,version,storage_key,original_filename,mime_type,file_extension,file_size_bytes,checksum_sha256,width,height,verified_at,created_by)VALUES($1,$2,$3,1,$4,'hero.jpg','image/jpeg','.jpg',1024,$5,1080,1920,now(),$6)`, productReferenceID, clientID, workspaceID, "integration/"+productReferenceID.String()+"/hero.jpg", strings.Repeat("d", 64), actorID); err != nil {
+		t.Fatalf("seed product reference version: %v", err)
+	}
+	mediaService := media.NewService(pool, nil, nil)
+	productReference, err := mediaService.AttachProduct(ctx, clientID, workspaceID, productID, productReferenceID, actorID, 1)
+	if err != nil || productReference.ProductID == nil || *productReference.ProductID != productID {
+		t.Fatalf("attach unassigned product reference: asset=%#v err=%v", productReference, err)
+	}
+	otherProductID, wrongReferenceID := uuid.New(), uuid.New()
+	if _, err = pool.Exec(ctx, `INSERT INTO products(id,client_id,workspace_id,brand_id,name,sku,category,vertical_key,status,created_by,updated_by)VALUES($1,$2,$3,$4,'Other luggage',$5,'Travel luggage','travel-luggage','DRAFT',$6,$6)`, otherProductID, clientID, workspaceID, brandID, "OTHER-"+uuid.NewString()[:8], actorID); err != nil {
+		t.Fatalf("seed other product: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO media_assets(id,client_id,workspace_id,product_id,asset_type,category,name,status,usage_rights,created_by,updated_by)VALUES($1,$2,$3,$4,'IMAGE','HERO_IMAGE','Wrong product hero','APPROVED','Integration fixture',$5,$5)`, wrongReferenceID, clientID, workspaceID, otherProductID, actorID); err != nil {
+		t.Fatalf("seed wrong product reference: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO media_asset_versions(media_asset_id,client_id,workspace_id,version,storage_key,original_filename,mime_type,file_extension,file_size_bytes,checksum_sha256,width,height,verified_at,created_by)VALUES($1,$2,$3,1,$4,'wrong.jpg','image/jpeg','.jpg',1024,$5,1080,1920,now(),$6)`, wrongReferenceID, clientID, workspaceID, "integration/"+wrongReferenceID.String()+"/wrong.jpg", strings.Repeat("e", 64), actorID); err != nil {
+		t.Fatalf("seed wrong product reference version: %v", err)
+	}
+	if _, attachErr := mediaService.AttachProduct(ctx, clientID, workspaceID, productID, wrongReferenceID, actorID, 1); !errors.Is(attachErr, media.ErrAssigned) {
+		t.Fatalf("expected cross-product attachment to fail, got %v", attachErr)
+	}
+	wrongDirection := scenes[0].Direction
+	wrongDirection.ReferenceAssetIDs = []uuid.UUID{wrongReferenceID}
+	if _, updateErr := service.UpdateScene(ctx, clientID, workspaceID, campaign.ID, scenes[0].ID, wrongDirection, scenes[0].Version, principal); !errors.Is(updateErr, planning.ErrInvalid) {
+		t.Fatalf("expected wrong-product reference to be rejected, got %v", updateErr)
+	}
+	validDirection := scenes[0].Direction
+	validDirection.ReferenceAssetIDs = []uuid.UUID{productReferenceID}
+	scenes[0], err = service.UpdateScene(ctx, clientID, workspaceID, campaign.ID, scenes[0].ID, validDirection, scenes[0].Version, principal)
+	if err != nil {
+		t.Fatalf("attach valid product reference to scene: %v", err)
+	}
+	if _, detachErr := mediaService.DetachProduct(ctx, clientID, workspaceID, productID, productReferenceID, actorID, productReference.Version); !errors.Is(detachErr, media.ErrInUse) {
+		t.Fatalf("expected in-use product reference detach to fail, got %v", detachErr)
+	}
+	if scenes[0], err = service.ApproveScene(ctx, clientID, workspaceID, campaign.ID, scenes[0].ID, scenes[0].Version, "integration review", principal); err != nil {
 		t.Fatalf("approve scene: %v", err)
+	}
+	if productReference, err = mediaService.Update(ctx, clientID, workspaceID, productReferenceID, actorID, media.UpdateInput{Category: productReference.Category, Name: "Integration product hero revised", Folder: productReference.Folder, UsageRights: productReference.UsageRights, Tags: productReference.Tags, ExpiresAt: productReference.ExpiresAt, Version: productReference.Version}); err != nil {
+		t.Fatalf("update referenced product media: %v", err)
+	}
+	refreshedScenes, err := service.ListScenes(ctx, clientID, workspaceID, campaign.ID)
+	if err != nil {
+		t.Fatalf("reload scenes after media change: %v", err)
+	}
+	for _, scene := range refreshedScenes {
+		if scene.ID == scenes[0].ID {
+			scenes[0] = scene
+		}
+	}
+	if scenes[0].Status != "DRAFT" {
+		t.Fatalf("expected referenced media change to return scene to draft, got %s", scenes[0].Status)
+	}
+	var invalidatedSceneApprovals int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM approvals WHERE entity_type='SCENE' AND entity_id=$1 AND invalidated_at IS NOT NULL`, scenes[0].ID).Scan(&invalidatedSceneApprovals); err != nil || invalidatedSceneApprovals != 1 {
+		t.Fatalf("scene approval invalidation count=%d err=%v", invalidatedSceneApprovals, err)
+	}
+	if scenes[0], err = service.ApproveScene(ctx, clientID, workspaceID, campaign.ID, scenes[0].ID, scenes[0].Version, "integration re-review after media change", principal); err != nil {
+		t.Fatalf("reapprove scene after media change: %v", err)
 	}
 	jobEnqueuer, err := jobs.NewEnqueuer(pool)
 	if err != nil {

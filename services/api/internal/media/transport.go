@@ -37,11 +37,63 @@ func (h *Handler) List(c fiber.Ctx) error {
 	if e != nil {
 		return out(c, e)
 	}
-	items, e := h.service.List(c.Context(), a, b, c.Query("search"), c.Query("assetType"), c.Query("status"))
+	var productID *uuid.UUID
+	if raw := strings.TrimSpace(c.Query("productId")); raw != "" {
+		parsed, parseErr := uuid.Parse(raw)
+		if parseErr != nil {
+			return out(c, ErrInvalid)
+		}
+		productID = &parsed
+	}
+	items, e := h.service.List(c.Context(), a, b, c.Query("search"), c.Query("assetType"), c.Query("status"), productID)
 	if e != nil {
 		return out(c, e)
 	}
 	return c.JSON(fiber.Map{"items": items})
+}
+func (h *Handler) AttachProduct(c fiber.Ctx) error {
+	a, b, assetID, e := scope(c, "assetId")
+	if e != nil {
+		return out(c, e)
+	}
+	productID, e := uuid.Parse(c.Params("productId"))
+	if e != nil {
+		return out(c, ErrInvalid)
+	}
+	var input struct {
+		Version int64 `json:"version"`
+	}
+	if c.Bind().Body(&input) != nil {
+		return out(c, ErrInvalid)
+	}
+	actor, _ := auth.PrincipalFrom(c)
+	asset, e := h.service.AttachProduct(c.Context(), a, b, productID, assetID, actor.UserID, input.Version)
+	if e != nil {
+		return out(c, e)
+	}
+	return c.JSON(asset)
+}
+func (h *Handler) DetachProduct(c fiber.Ctx) error {
+	a, b, assetID, e := scope(c, "assetId")
+	if e != nil {
+		return out(c, e)
+	}
+	productID, e := uuid.Parse(c.Params("productId"))
+	if e != nil {
+		return out(c, ErrInvalid)
+	}
+	var input struct {
+		Version int64 `json:"version"`
+	}
+	if c.Bind().Body(&input) != nil {
+		return out(c, ErrInvalid)
+	}
+	actor, _ := auth.PrincipalFrom(c)
+	asset, e := h.service.DetachProduct(c.Context(), a, b, productID, assetID, actor.UserID, input.Version)
+	if e != nil {
+		return out(c, e)
+	}
+	return c.JSON(asset)
 }
 func (h *Handler) StartUpload(c fiber.Ctx) error {
 	if strings.TrimSpace(c.Get("Idempotency-Key")) == "" {
@@ -165,7 +217,11 @@ func out(c fiber.Ctx, e error) error {
 	case errors.Is(e, ErrUnavailable):
 		return problem.Write(c, 503, "provider-not-configured", "Kho đối tượng chưa cấu hình", "Cấu hình R2 hoặc MinIO trước khi upload.")
 	case errors.Is(e, ErrConflict):
-		return problem.Write(c, 409, "upload-conflict", "Upload không thể xác minh", "Metadata trên server không khớp hoặc phiên đã thay đổi.")
+		return problem.Write(c, 409, "media-conflict", "Media đã thay đổi", "Tải lại asset hoặc phiên upload trước khi tiếp tục.")
+	case errors.Is(e, ErrAssigned):
+		return problem.Write(c, 409, "media-product-conflict", "Media đã thuộc sản phẩm khác", "Gỡ media khỏi sản phẩm hiện tại trước khi gắn lại.")
+	case errors.Is(e, ErrInUse):
+		return problem.Write(c, 409, "media-in-use", "Media đang được sử dụng", "Gỡ asset khỏi fact, claim, scene hoặc edit video trước khi tách hay xóa.")
 	default:
 		return problem.Write(c, 500, "internal", "Không thể xử lý media", "Hệ thống chưa thể hoàn tất thao tác.")
 	}

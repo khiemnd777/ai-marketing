@@ -111,6 +111,9 @@ func (s *Service) Start(ctx context.Context, clientID, workspaceID, campaignID, 
 	if strings.TrimSpace(scene.Prompt) == "" {
 		return Generation{}, ErrPrerequisite
 	}
+	if err = validateSceneProductReferences(ctx, tx, scene.SceneVersionID, scene.ProductID); err != nil {
+		return Generation{}, err
+	}
 	referenceHash, err := referenceFingerprint(ctx, tx, scene.SceneVersionID)
 	if err != nil {
 		return Generation{}, err
@@ -360,7 +363,7 @@ func (s *Service) UpdateEdit(ctx context.Context, clientID, workspaceID, campaig
 	}
 	if len(input.AttachedProductAssetIDs) > 0 {
 		var validCount int
-		if err = tx.QueryRow(ctx, `SELECT count(*) FROM media_assets a JOIN campaigns c ON c.id=$1 WHERE a.id=ANY($2) AND a.client_id=$3 AND a.workspace_id=$4 AND a.product_id=c.product_id AND a.deleted_at IS NULL`, campaignID, input.AttachedProductAssetIDs, clientID, workspaceID).Scan(&validCount); err != nil {
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM media_assets a JOIN campaigns c ON c.id=$1 JOIN media_asset_versions v ON v.media_asset_id=a.id AND v.version=a.current_version AND v.verified_at IS NOT NULL WHERE a.id=ANY($2) AND a.client_id=$3 AND a.workspace_id=$4 AND a.product_id=c.product_id AND a.asset_type IN ('IMAGE','VIDEO','LOGO','SCREENSHOT','SCREEN_RECORDING') AND a.status='APPROVED' AND (a.expires_at IS NULL OR a.expires_at>now()) AND a.deleted_at IS NULL`, campaignID, input.AttachedProductAssetIDs, clientID, workspaceID).Scan(&validCount); err != nil {
 			return Generation{}, err
 		}
 		if validCount != len(input.AttachedProductAssetIDs) {
@@ -378,6 +381,27 @@ func (s *Service) UpdateEdit(ctx context.Context, clientID, workspaceID, campaig
 		return Generation{}, err
 	}
 	return s.Get(ctx, clientID, workspaceID, campaignID, sceneID, generationID)
+}
+
+func validateSceneProductReferences(ctx context.Context, tx pgx.Tx, sceneVersionID, productID uuid.UUID) error {
+	var valid bool
+	err := tx.QueryRow(ctx, `SELECT NOT EXISTS(
+		SELECT 1 FROM scene_assets sa
+		LEFT JOIN media_assets a ON a.id=sa.media_asset_id
+		LEFT JOIN media_asset_versions v ON v.media_asset_id=a.id AND v.version=a.current_version
+		WHERE sa.scene_version_id=$1 AND sa.role='PRODUCT_REFERENCE' AND (
+			a.id IS NULL OR a.product_id IS DISTINCT FROM $2 OR a.deleted_at IS NOT NULL OR a.status<>'APPROVED'
+			OR (a.expires_at IS NOT NULL AND a.expires_at<=now()) OR v.verified_at IS NULL
+			OR a.asset_type NOT IN ('IMAGE','VIDEO','LOGO','SCREENSHOT','SCREEN_RECORDING')
+		)
+	)`, sceneVersionID, productID).Scan(&valid)
+	if err != nil {
+		return err
+	}
+	if !valid {
+		return ErrPrerequisite
+	}
+	return nil
 }
 
 const generationSelect = `SELECT g.id,g.scene_id,g.scene_version,g.provider,g.provider_task_id,g.status::text,g.attempt_number,g.model,g.api_version,g.resolution,g.aspect_ratio,g.duration_seconds,g.generate_audio,g.scene_hash,g.output_asset_id,g.estimated_cost_usd::float8,g.actual_cost_usd::float8,g.usage_tokens,g.error_category,g.error_code,g.error_message,g.review_notes,g.version,g.created_at,g.updated_at,COALESCE(s.selected_generation_task_id=g.id,false) FROM scene_generation_tasks g JOIN scenes s ON s.id=g.scene_id`
@@ -434,8 +458,8 @@ func referenceFingerprint(ctx context.Context, tx pgx.Tx, sceneVersionID uuid.UU
 	rows, err := tx.Query(ctx, `
 		SELECT role,asset_id,checksum,version FROM (
 		  SELECT sa.role,sa.media_asset_id AS asset_id,COALESCE(v.checksum_sha256,'') AS checksum,v.version
-		  FROM scene_assets sa JOIN media_assets a ON a.id=sa.media_asset_id AND a.deleted_at IS NULL
-		  JOIN media_asset_versions v ON v.media_asset_id=a.id AND v.version=a.current_version WHERE sa.scene_version_id=$1
+		  FROM scene_assets sa JOIN media_assets a ON a.id=sa.media_asset_id AND a.deleted_at IS NULL AND a.status='APPROVED' AND (a.expires_at IS NULL OR a.expires_at>now())
+		  JOIN media_asset_versions v ON v.media_asset_id=a.id AND v.version=a.current_version AND v.verified_at IS NOT NULL WHERE sa.scene_version_id=$1
 		  UNION ALL
 		  SELECT 'CHARACTER_'||ca.purpose,ca.media_asset_id,COALESCE(v.checksum_sha256,''),v.version
 		  FROM scene_versions sv JOIN character_assets ca ON ca.character_id IN (sv.speaker_character_id,sv.listener_character_id)

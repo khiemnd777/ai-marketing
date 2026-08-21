@@ -1,0 +1,181 @@
+"use client";
+
+import type { Body, Meta, UppyFile } from "@uppy/core";
+import Uppy from "@uppy/core";
+import GoldenRetriever from "@uppy/golden-retriever";
+import Dashboard from "@uppy/react/dashboard";
+import type { components } from "@studio/api-client";
+import { useEffect, useState } from "react";
+import { Badge, Card } from "@/components/ui";
+import { api } from "@/lib/api";
+import { apiError, newIdempotencyKey } from "@/lib/problem";
+
+type Asset = components["schemas"]["MediaAsset"];
+type AssetType = components["schemas"]["MediaAssetType"];
+type UploadSession = components["schemas"]["MediaUploadSession"];
+type PresignedRequest = components["schemas"]["PresignedRequest"];
+export type MediaScope = { clientId: string; workspaceId: string };
+type UploadedPart = { partNumber: number; etag: string };
+type ResumeState = { session: UploadSession; completedParts: UploadedPart[] };
+type MediaMeta = Meta & { displayName?: string; category?: string; folder?: string; usageRights?: string; tags?: string; uploadKey?: string; resumeState?: string };
+type MediaBody = Body & { assetId?: string };
+
+const chunkSize = 10 * 1024 * 1024;
+const allAcceptedTypes = ["image/jpeg", "image/png", "image/webp", "video/mp4", "video/quicktime", "audio/mpeg", "audio/wav", "audio/x-wav", "application/pdf"];
+const visualAcceptedTypes = ["image/jpeg", "image/png", "image/webp", "video/mp4", "video/quicktime"];
+
+export function MediaUploader({ scope, productId, visualOnly = false, onUploaded }: { scope: MediaScope; productId?: string; visualOnly?: boolean; onUploaded: () => Promise<unknown> }) {
+  const [uppy] = useState(() => {
+    const instance = new Uppy<MediaMeta, MediaBody>({
+      id: `studio-media-${scope.workspaceId}-${productId ?? "library"}`,
+      autoProceed: false,
+      allowMultipleUploadBatches: true,
+      restrictions: { allowedFileTypes: visualOnly ? visualAcceptedTypes : allAcceptedTypes, maxFileSize: 2 * 1024 * 1024 * 1024, maxNumberOfFiles: 20 },
+    });
+    if (typeof window !== "undefined") instance.use(GoldenRetriever, { expires: 30 * 60 * 1000 });
+    return instance;
+  });
+  const [batchError, setBatchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const requests = new Map<string, XMLHttpRequest>();
+    const fileAdded = (file: UppyFile<MediaMeta, MediaBody>) => {
+      const category = inferCategory(file.type, file.name);
+      uppy.setFileMeta(file.id, { displayName: file.name, category, folder: productId ? "products" : "", usageRights: "Owned by client; approved for marketing use", tags: category.toLowerCase().replaceAll("_", "-"), uploadKey: newIdempotencyKey() });
+    };
+    const fileRemoved = (file: UppyFile<MediaMeta, MediaBody>) => requests.get(file.id)?.abort();
+    const uploader = async (fileIDs: string[]) => {
+      setBatchError(null);
+      await Promise.all(fileIDs.map(async (fileID) => {
+        const file = uppy.getFile(fileID);
+        if (!file.data || file.isRemote || file.size === null) throw new Error("Uppy chỉ nhận local file có dung lượng xác định.");
+        uppy.emit("upload-start", [file]);
+        try {
+          const asset = await uploadOne(scope, productId, file, (request) => requests.set(file.id, request), (uploaded) => uppy.emit("upload-progress", uppy.getFile(file.id), { bytesUploaded: uploaded, bytesTotal: file.size, uploadStarted: file.progress.uploadStarted ?? Date.now() }), (state) => uppy.setFileMeta(file.id, { resumeState: JSON.stringify(state) }));
+          uppy.emit("upload-success", uppy.getFile(file.id), { status: 200, body: { assetId: asset.id }, uploadURL: asset.id });
+        } catch (error) {
+          const normalized = error instanceof Error ? error : new Error("Upload thất bại.");
+          setBatchError(normalized.message);
+          uppy.emit("upload-error", uppy.getFile(file.id), normalized);
+        } finally {
+          requests.delete(file.id);
+        }
+      }));
+      await onUploaded();
+    };
+    uppy.on("file-added", fileAdded);
+    uppy.on("file-removed", fileRemoved);
+    uppy.addUploader(uploader);
+    return () => {
+      uppy.off("file-added", fileAdded);
+      uppy.off("file-removed", fileRemoved);
+      uppy.removeUploader(uploader);
+      for (const request of requests.values()) request.abort();
+    };
+  }, [onUploaded, productId, scope, uppy]);
+
+  return <Card className="overflow-hidden"><div className="border-b border-[var(--line)] p-5"><div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="font-serif text-xl font-bold">{productId ? "Upload cho sản phẩm" : "Upload queue"}</h2><p className="mt-1 text-sm text-[var(--muted)]">{productId ? "Asset được lưu trong Media Library và tự động gắn với sản phẩm này." : "Tối đa 20 file/batch · 2 GB/file · multipart có thể tiếp tục."}</p></div><Badge tone="good">Một nguồn dữ liệu</Badge></div>{batchError ? <p role="alert" className="mt-3 text-sm font-semibold text-[var(--coral)]">{batchError}</p> : null}</div><Dashboard uppy={uppy} height={productId ? 330 : 390} proudlyDisplayPoweredByUppy={false} hideProgressDetails={false} showRemoveButtonAfterComplete note={visualOnly ? "JPEG, PNG, WebP, MP4 hoặc MOV" : "JPEG, PNG, WebP, MP4, MOV, MP3, WAV hoặc PDF"} metaFields={[{ id: "displayName", name: "Tên hiển thị", placeholder: "Tên dễ tìm" }, { id: "category", name: "Danh mục", placeholder: "HERO_IMAGE, PACKSHOT…" }, { id: "folder", name: "Folder", placeholder: "campaign/summer" }, { id: "usageRights", name: "Quyền sử dụng", placeholder: "Nguồn và phạm vi được phép" }, { id: "tags", name: "Tags", placeholder: "hero, summer, packshot" }]} /></Card>;
+}
+
+async function uploadOne(scope: MediaScope, productId: string | undefined, file: UppyFile<MediaMeta, MediaBody>, registerRequest: (request: XMLHttpRequest) => void, progress: (bytes: number) => void, persist: (state: ResumeState) => void): Promise<Asset> {
+  if (!(file.data instanceof Blob) || file.size === null) throw new Error("File không hợp lệ.");
+  const bodyData = file.data;
+  const meta = file.meta;
+  const assetType = inferAssetType(file.type, file.name);
+  const category = String(meta.category || inferCategory(file.type, file.name)).trim().toUpperCase();
+  let restored = parseResumeState(meta.resumeState);
+  if (restored && new Date(restored.session.expiresAt).getTime() <= Date.now() + 15_000) restored = null;
+  let session = restored?.session;
+  const parts = restored?.completedParts ?? [];
+  if (!session) {
+    const { data, error } = await api.POST("/clients/{clientId}/workspaces/{workspaceId}/media-uploads", { params: { path: scope, header: { "Idempotency-Key": String(meta.uploadKey || newIdempotencyKey()) } }, body: { productId: productId ?? null, assetType, category, name: String(meta.displayName || file.name), folder: String(meta.folder || ""), filename: file.name, mimeType: file.type, sizeBytes: file.size, usageRights: String(meta.usageRights || ""), tags: String(meta.tags || "").split(",").map((tag) => tag.trim()).filter(Boolean), sourceMetadata: { lastModified: bodyData instanceof File ? bodyData.lastModified : null, uppyFileId: file.id } } });
+    if (error || !data) throw apiError(error, "Không thể tạo phiên upload.");
+    session = data;
+    persist({ session, completedParts: parts });
+  }
+  if (session.multipart) {
+    const count = Math.ceil(file.size / chunkSize);
+    const completed = new Map(parts.map((part) => [part.partNumber, part]));
+    progress(completedBytes(completed, file.size));
+    for (let index = 0; index < count; index++) {
+      const partNumber = index + 1;
+      if (completed.has(partNumber)) continue;
+      const { data: request, error: partError } = await api.POST("/clients/{clientId}/workspaces/{workspaceId}/media-uploads/{uploadId}/parts/{partNumber}", { params: { path: { ...scope, uploadId: session.id, partNumber } } });
+      if (partError || !request) throw apiError(partError, `Không thể ký phần ${partNumber}.`);
+      const body = bodyData.slice(index * chunkSize, Math.min(file.size, (index + 1) * chunkSize));
+      const response = await putWithRetry(request, body, registerRequest, (loaded) => progress(Math.min(file.size!, index * chunkSize + loaded)));
+      if (!response.etag) throw new Error("Object storage không trả ETag; kiểm tra CORS ExposeHeaders.");
+      completed.set(partNumber, { partNumber, etag: response.etag });
+      parts.splice(0, parts.length, ...Array.from(completed.values()).sort((a, b) => a.partNumber - b.partNumber));
+      persist({ session, completedParts: parts });
+    }
+  } else {
+    if (!session.request) throw new Error("Phiên upload thiếu URL ký.");
+    await putWithRetry(session.request, bodyData, registerRequest, progress);
+  }
+  progress(file.size);
+  const { data: asset, error: completeError } = await api.POST("/clients/{clientId}/workspaces/{workspaceId}/media-uploads/{uploadId}/complete", { params: { path: { ...scope, uploadId: session.id } }, body: { parts } });
+  if (completeError || !asset) throw apiError(completeError, "Server không thể xác minh file đã upload.");
+  return asset;
+}
+
+function parseResumeState(value: unknown): ResumeState | null {
+  if (typeof value !== "string" || !value) return null;
+  try {
+    const parsed = JSON.parse(value) as ResumeState;
+    return parsed.session?.id && parsed.session.expiresAt && Array.isArray(parsed.completedParts) ? parsed : null;
+  } catch { return null; }
+}
+
+function completedBytes(parts: Map<number, UploadedPart>, total: number) {
+  let uploaded = 0;
+  for (const partNumber of parts.keys()) uploaded += Math.min(chunkSize, Math.max(0, total - (partNumber - 1) * chunkSize));
+  return Math.min(total, uploaded);
+}
+
+async function putWithRetry(request: PresignedRequest, body: Blob, registerRequest: (request: XMLHttpRequest) => void, progress: (bytes: number) => void) {
+  let lastError = new Error("Object storage từ chối upload.");
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try { return await xhrPut(request, body, registerRequest, progress); }
+    catch (error) {
+      lastError = error instanceof Error ? error : lastError;
+      if (attempt < 3) await new Promise((resolve) => window.setTimeout(resolve, attempt * 350));
+    }
+  }
+  throw lastError;
+}
+
+function xhrPut(request: PresignedRequest, body: Blob, registerRequest: (request: XMLHttpRequest) => void, progress: (bytes: number) => void): Promise<{ etag: string | null }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    registerRequest(xhr);
+    xhr.open(request.method, request.url);
+    for (const [key, value] of Object.entries(request.headers)) if (!["host", "content-length"].includes(key.toLowerCase())) xhr.setRequestHeader(key, value);
+    xhr.upload.onprogress = (event) => progress(event.loaded);
+    xhr.onerror = () => reject(new Error("Mất kết nối khi upload tới object storage."));
+    xhr.onabort = () => reject(new Error("Upload đã bị hủy."));
+    xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve({ etag: xhr.getResponseHeader("etag") }) : reject(new Error(`Object storage trả HTTP ${xhr.status}.`));
+    xhr.send(body);
+  });
+}
+
+function inferAssetType(mime: string, name: string): AssetType {
+  if (mime.startsWith("video/")) return name.toLowerCase().includes("screen") ? "SCREEN_RECORDING" : "VIDEO";
+  if (mime.startsWith("audio/")) return "AUDIO";
+  if (mime === "application/pdf") return "BROCHURE";
+  if (name.toLowerCase().includes("logo")) return "LOGO";
+  if (name.toLowerCase().includes("screen")) return "SCREENSHOT";
+  return "IMAGE";
+}
+
+function inferCategory(mime: string, name = "") {
+  const normalized = name.toLowerCase();
+  if (normalized.includes("packshot")) return "PACKSHOT";
+  if (normalized.includes("front")) return "FRONT_VIEW";
+  if (normalized.includes("side")) return "SIDE_VIEW";
+  if (normalized.includes("wheel")) return mime.startsWith("video/") ? "WHEEL_DEMO" : "WHEEL_CLOSE_UP";
+  if (normalized.includes("interior")) return "INTERIOR_VIEW";
+  if (mime.startsWith("video/")) return "LIFESTYLE";
+  if (mime.startsWith("audio/")) return "BACKGROUND_MUSIC";
+  return "HERO_IMAGE";
+}

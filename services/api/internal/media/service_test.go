@@ -24,7 +24,7 @@ func TestValidateUpdateNormalizesAndRejectsDuplicateTags(t *testing.T) {
 	if err := validateUpdate(&valid); err != nil {
 		t.Fatalf("expected valid update: %v", err)
 	}
-	if valid.Name != "Hero image" || valid.Folder != "campaign/summer" || valid.UsageRights != "Client owned" {
+	if valid.Name != "Hero image" || valid.Category != "HERO_IMAGE" || valid.Folder != "campaign/summer" || valid.UsageRights != "Client owned" {
 		t.Fatalf("expected normalized metadata, got %#v", valid)
 	}
 	duplicate := valid

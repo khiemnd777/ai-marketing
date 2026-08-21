@@ -417,6 +417,14 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ProductStatusChange' } } } }
       responses:
         '200': { description: Product status changed., content: { application/json: { schema: { $ref: '#/components/schemas/Product' } } } }
+        '409': { $ref: '#/components/responses/Problem' }
+  /clients/{clientId}/workspaces/{workspaceId}/products/{productId}/media-readiness:
+    parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/ProductId' }]
+    get:
+      operationId: getProductMediaReadiness
+      responses:
+        '200': { description: Product media requirements and approval readiness., content: { application/json: { schema: { $ref: '#/components/schemas/ProductMediaReadiness' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
   /clients/{clientId}/workspaces/{workspaceId}/products/{productId}/facts:
     parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/ProductId' }]
     get:
@@ -479,6 +487,7 @@ paths:
         - { name: search, in: query, schema: { type: string, maxLength: 200 } }
         - { name: assetType, in: query, schema: { $ref: '#/components/schemas/MediaAssetType' } }
         - { name: status, in: query, schema: { $ref: '#/components/schemas/ContentStatus' } }
+        - { name: productId, in: query, schema: { type: string, format: uuid } }
       responses:
         '200': { description: Media assets., content: { application/json: { schema: { type: object, required: [items], properties: { items: { type: array, items: { $ref: '#/components/schemas/MediaAsset' } } } } } } }
   /clients/{clientId}/workspaces/{workspaceId}/media-uploads:
@@ -522,6 +531,7 @@ paths:
       requestBody: { required: true, content: { application/json: { schema: { type: object, additionalProperties: false, required: [version], properties: { version: { type: integer, minimum: 1 } } } } } }
       responses:
         '204': { description: Media asset soft-deleted. }
+        '409': { $ref: '#/components/responses/Problem' }
   /clients/{clientId}/workspaces/{workspaceId}/media-assets/{assetId}/status:
     parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/AssetId' }]
     patch:
@@ -531,6 +541,22 @@ paths:
         '200': { description: Media review status updated., content: { application/json: { schema: { $ref: '#/components/schemas/MediaAsset' } } } }
         '409': { $ref: '#/components/responses/Problem' }
         '422': { $ref: '#/components/responses/Problem' }
+  /clients/{clientId}/workspaces/{workspaceId}/products/{productId}/media-assets/{assetId}:
+    parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }, { $ref: '#/components/parameters/ProductId' }, { $ref: '#/components/parameters/AssetId' }]
+    put:
+      operationId: attachProductMediaAsset
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/VersionInput' } } } }
+      responses:
+        '200': { description: Existing workspace asset attached to the product., content: { application/json: { schema: { $ref: '#/components/schemas/MediaAsset' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+    delete:
+      operationId: detachProductMediaAsset
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/VersionInput' } } } }
+      responses:
+        '200': { description: Asset detached from the product but retained in Media Library., content: { application/json: { schema: { $ref: '#/components/schemas/MediaAsset' } } } }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
   /clients/{clientId}/workspaces/{workspaceId}/campaigns:
     parameters: [{ $ref: '#/components/parameters/ClientId' }, { $ref: '#/components/parameters/WorkspaceId' }]
     get:
@@ -1223,6 +1249,24 @@ components:
             version: { type: integer, minimum: 1 }
             createdAt: { type: string, format: date-time }
             updatedAt: { type: string, format: date-time }
+    ProductMediaRequirement:
+      type: object
+      additionalProperties: false
+      required: [category, totalAssets, approvedAssets, ready]
+      properties:
+        category: { type: string }
+        totalAssets: { type: integer, minimum: 0 }
+        approvedAssets: { type: integer, minimum: 0 }
+        ready: { type: boolean }
+    ProductMediaReadiness:
+      type: object
+      additionalProperties: false
+      required: [productId, verticalKey, ready, requirements]
+      properties:
+        productId: { type: string, format: uuid }
+        verticalKey: { type: string }
+        ready: { type: boolean }
+        requirements: { type: array, items: { $ref: '#/components/schemas/ProductMediaRequirement' } }
     ProductFactInput:
       type: object
       additionalProperties: false
@@ -2317,6 +2361,12 @@ components:
       required: [status, version]
       properties:
         status: { $ref: '#/components/schemas/ContentStatus' }
+        version: { type: integer, minimum: 1 }
+    VersionInput:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
         version: { type: integer, minimum: 1 }
     MediaAsset:
       type: object

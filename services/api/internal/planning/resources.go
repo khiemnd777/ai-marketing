@@ -758,8 +758,12 @@ func insertSceneVersion(ctx context.Context, tx pgx.Tx, sceneID uuid.UUID, versi
 	}
 	for _, id := range d.ReferenceAssetIDs {
 		tag, insertErr := tx.Exec(ctx, `INSERT INTO scene_assets(scene_version_id,media_asset_id,role)
-			SELECT $1,id,'PRODUCT_REFERENCE' FROM media_assets
-			WHERE id=$2 AND client_id=$3 AND workspace_id=$4 AND deleted_at IS NULL`, versionID, id, clientID, workspaceID)
+			SELECT $1,a.id,'PRODUCT_REFERENCE' FROM media_assets a
+			JOIN campaigns c ON c.id=$5 AND c.client_id=$3 AND c.workspace_id=$4
+			JOIN media_asset_versions v ON v.media_asset_id=a.id AND v.version=a.current_version AND v.verified_at IS NOT NULL
+			WHERE a.id=$2 AND a.client_id=$3 AND a.workspace_id=$4 AND a.product_id=c.product_id
+			AND a.asset_type IN ('IMAGE','VIDEO','LOGO','SCREENSHOT','SCREEN_RECORDING')
+			AND a.status='APPROVED' AND (a.expires_at IS NULL OR a.expires_at>now()) AND a.deleted_at IS NULL`, versionID, id, clientID, workspaceID, campaignID)
 		if insertErr != nil {
 			return insertErr
 		}

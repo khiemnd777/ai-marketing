@@ -517,6 +517,26 @@ export interface paths {
         patch: operations["setProductStatus"];
         trace?: never;
     };
+    "/clients/{clientId}/workspaces/{workspaceId}/products/{productId}/media-readiness": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                productId: components["parameters"]["ProductId"];
+            };
+            cookie?: never;
+        };
+        get: operations["getProductMediaReadiness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/clients/{clientId}/workspaces/{workspaceId}/products/{productId}/facts": {
         parameters: {
             query?: never;
@@ -778,6 +798,27 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["setMediaAssetStatus"];
+        trace?: never;
+    };
+    "/clients/{clientId}/workspaces/{workspaceId}/products/{productId}/media-assets/{assetId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                productId: components["parameters"]["ProductId"];
+                assetId: components["parameters"]["AssetId"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["attachProductMediaAsset"];
+        post?: never;
+        delete: operations["detachProductMediaAsset"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/clients/{clientId}/workspaces/{workspaceId}/campaigns": {
@@ -2023,6 +2064,19 @@ export interface components {
             /** Format: date-time */
             updatedAt: string;
         };
+        ProductMediaRequirement: {
+            category: string;
+            totalAssets: number;
+            approvedAssets: number;
+            ready: boolean;
+        };
+        ProductMediaReadiness: {
+            /** Format: uuid */
+            productId: string;
+            verticalKey: string;
+            ready: boolean;
+            requirements: components["schemas"]["ProductMediaRequirement"][];
+        };
         ProductFactInput: {
             factKey: string;
             label: string;
@@ -3121,6 +3175,9 @@ export interface components {
         };
         MediaAssetStatusInput: {
             status: components["schemas"]["ContentStatus"];
+            version: number;
+        };
+        VersionInput: {
             version: number;
         };
         MediaAsset: {
@@ -4358,6 +4415,32 @@ export interface operations {
                     "application/json": components["schemas"]["Product"];
                 };
             };
+            409: components["responses"]["Problem"];
+        };
+    };
+    getProductMediaReadiness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                productId: components["parameters"]["ProductId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Product media requirements and approval readiness. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductMediaReadiness"];
+                };
+            };
+            404: components["responses"]["Problem"];
         };
     };
     listProductFacts: {
@@ -4599,6 +4682,7 @@ export interface operations {
                 search?: string;
                 assetType?: components["schemas"]["MediaAssetType"];
                 status?: components["schemas"]["ContentStatus"];
+                productId?: string;
             };
             header?: never;
             path: {
@@ -4784,6 +4868,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            409: components["responses"]["Problem"];
         };
     };
     setMediaAssetStatus: {
@@ -4814,6 +4899,68 @@ export interface operations {
             };
             409: components["responses"]["Problem"];
             422: components["responses"]["Problem"];
+        };
+    };
+    attachProductMediaAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                productId: components["parameters"]["ProductId"];
+                assetId: components["parameters"]["AssetId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionInput"];
+            };
+        };
+        responses: {
+            /** @description Existing workspace asset attached to the product. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaAsset"];
+                };
+            };
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
+        };
+    };
+    detachProductMediaAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                clientId: components["parameters"]["ClientId"];
+                workspaceId: components["parameters"]["WorkspaceId"];
+                productId: components["parameters"]["ProductId"];
+                assetId: components["parameters"]["AssetId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionInput"];
+            };
+        };
+        responses: {
+            /** @description Asset detached from the product but retained in Media Library. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaAsset"];
+                };
+            };
+            404: components["responses"]["Problem"];
+            409: components["responses"]["Problem"];
         };
     };
     listCampaigns: {

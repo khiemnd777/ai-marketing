@@ -54,6 +54,17 @@ func (h *Handler) Get(c fiber.Ctx) error {
 	c.Set("ETag", `W/"`+strconv.FormatInt(i.Version, 10)+`"`)
 	return c.JSON(i)
 }
+func (h *Handler) MediaReadiness(c fiber.Ctx) error {
+	a, b, id, e := scope(c, true)
+	if e != nil {
+		return out(c, e)
+	}
+	readiness, e := h.service.MediaReadiness(c.Context(), a, b, id)
+	if e != nil {
+		return out(c, e)
+	}
+	return c.JSON(readiness)
+}
 func (h *Handler) Create(c fiber.Ctx) error {
 	if strings.TrimSpace(c.Get("Idempotency-Key")) == "" {
 		return problem.Write(c, 400, "idempotency-key", "Thiếu khóa chống trùng", "Idempotency-Key là bắt buộc.")
@@ -116,6 +127,8 @@ func out(c fiber.Ctx, e error) error {
 		return problem.Write(c, 404, "not-found", "Không tìm thấy sản phẩm", "Sản phẩm không tồn tại trong workspace.")
 	case errors.Is(e, ErrConflict):
 		return problem.Write(c, 409, "version-conflict", "Sản phẩm đã thay đổi", "Tải lại sản phẩm trước khi lưu.")
+	case errors.Is(e, ErrMediaNotReady):
+		return problem.Write(c, 409, "product-media-not-ready", "Media sản phẩm chưa sẵn sàng", "Mỗi nhóm media bắt buộc phải có ít nhất một asset đã được duyệt, còn hạn và upload đã xác minh.")
 	default:
 		return problem.Write(c, 500, "internal", "Không thể xử lý sản phẩm", "Hệ thống chưa thể hoàn tất thao tác.")
 	}

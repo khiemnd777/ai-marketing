@@ -19,6 +19,8 @@ var (
 	ErrNotFound    = errors.New("media not found")
 	ErrUnavailable = errors.New("object storage unavailable")
 	ErrConflict    = errors.New("media conflict")
+	ErrAssigned    = errors.New("media already belongs to another product")
+	ErrInUse       = errors.New("media is in use")
 )
 
 const multipartThreshold int64 = 100 * 1024 * 1024
@@ -125,8 +127,8 @@ func (s *Service) objectStore(ctx context.Context, clientID uuid.UUID) (storage.
 
 const assetCols = `a.id,a.client_id,a.workspace_id,a.brand_id,a.product_id,a.campaign_id,a.asset_type::text,a.category,a.name,a.folder,a.status::text,a.usage_rights,COALESCE(array_agg(DISTINCT t.tag) FILTER(WHERE t.tag IS NOT NULL),'{}'),v.mime_type,v.file_size_bytes,v.width,v.height,v.duration_ms,a.version,a.expires_at,a.created_at,a.updated_at`
 
-func (s *Service) List(ctx context.Context, clientID, workspaceID uuid.UUID, search, assetType, status string) ([]Asset, error) {
-	rows, e := s.pool.Query(ctx, `SELECT `+assetCols+` FROM media_assets a LEFT JOIN media_asset_tags t ON t.media_asset_id=a.id LEFT JOIN media_asset_versions v ON v.media_asset_id=a.id AND v.version=a.current_version WHERE a.client_id=$1 AND a.workspace_id=$2 AND a.deleted_at IS NULL AND ($3='' OR a.asset_type::text=$3) AND ($4='' OR a.status::text=$4) AND ($5='' OR a.name ILIKE '%'||$5||'%' OR t.tag ILIKE '%'||$5||'%') GROUP BY a.id,v.id ORDER BY a.created_at DESC`, clientID, workspaceID, strings.ToUpper(assetType), strings.ToUpper(status), strings.TrimSpace(search))
+func (s *Service) List(ctx context.Context, clientID, workspaceID uuid.UUID, search, assetType, status string, productID *uuid.UUID) ([]Asset, error) {
+	rows, e := s.pool.Query(ctx, `SELECT `+assetCols+` FROM media_assets a LEFT JOIN media_asset_tags t ON t.media_asset_id=a.id LEFT JOIN media_asset_versions v ON v.media_asset_id=a.id AND v.version=a.current_version WHERE a.client_id=$1 AND a.workspace_id=$2 AND a.deleted_at IS NULL AND ($3='' OR a.asset_type::text=$3) AND ($4='' OR a.status::text=$4) AND ($5='' OR a.name ILIKE '%'||$5||'%' OR t.tag ILIKE '%'||$5||'%') AND ($6::uuid IS NULL OR a.product_id=$6) GROUP BY a.id,v.id ORDER BY a.created_at DESC`, clientID, workspaceID, strings.ToUpper(assetType), strings.ToUpper(status), strings.TrimSpace(search), productID)
 	if e != nil {
 		return nil, e
 	}
@@ -151,7 +153,7 @@ func (s *Service) StartUpload(ctx context.Context, clientID, workspaceID, actorI
 		return UploadSession{}, e
 	}
 	var scopeValid bool
-	if e = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workspaces w WHERE w.id=$2 AND w.client_id=$1 AND w.status='ACTIVE' AND ($3::uuid IS NULL OR EXISTS(SELECT 1 FROM brands b WHERE b.id=$3 AND b.client_id=$1 AND b.workspace_id=$2)) AND ($4::uuid IS NULL OR EXISTS(SELECT 1 FROM products p WHERE p.id=$4 AND p.client_id=$1 AND p.workspace_id=$2)) AND ($5::uuid IS NULL OR EXISTS(SELECT 1 FROM campaigns c WHERE c.id=$5 AND c.client_id=$1 AND c.workspace_id=$2)))`, clientID, workspaceID, i.BrandID, i.ProductID, i.CampaignID).Scan(&scopeValid); e != nil {
+	if e = s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM workspaces w WHERE w.id=$2 AND w.client_id=$1 AND w.status='ACTIVE' AND ($3::uuid IS NULL OR EXISTS(SELECT 1 FROM brands b WHERE b.id=$3 AND b.client_id=$1 AND b.workspace_id=$2)) AND ($4::uuid IS NULL OR EXISTS(SELECT 1 FROM products p WHERE p.id=$4 AND p.client_id=$1 AND p.workspace_id=$2 AND p.status<>'ARCHIVED')) AND ($5::uuid IS NULL OR EXISTS(SELECT 1 FROM campaigns c WHERE c.id=$5 AND c.client_id=$1 AND c.workspace_id=$2)))`, clientID, workspaceID, i.BrandID, i.ProductID, i.CampaignID).Scan(&scopeValid); e != nil {
 		return UploadSession{}, e
 	}
 	if !scopeValid {
@@ -333,12 +335,13 @@ func (s *Service) Update(ctx context.Context, clientID, workspaceID, id, actorID
 		return Asset{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	tag, err := tx.Exec(ctx, `UPDATE media_assets SET category=$4,name=$5,folder=$6,usage_rights=$7,expires_at=$8,version=version+1,updated_by=$9,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND version=$10 AND deleted_at IS NULL`, id, clientID, workspaceID, input.Category, input.Name, input.Folder, input.UsageRights, input.ExpiresAt, actorID, input.Version)
+	var productID *uuid.UUID
+	err = tx.QueryRow(ctx, `UPDATE media_assets SET category=$4,name=$5,folder=$6,usage_rights=$7,expires_at=$8,version=version+1,updated_by=$9,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND version=$10 AND deleted_at IS NULL RETURNING product_id`, id, clientID, workspaceID, input.Category, input.Name, input.Folder, input.UsageRights, input.ExpiresAt, actorID, input.Version).Scan(&productID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Asset{}, ErrConflict
+		}
 		return Asset{}, err
-	}
-	if tag.RowsAffected() != 1 {
-		return Asset{}, ErrConflict
 	}
 	if _, err = tx.Exec(ctx, `DELETE FROM media_asset_tags WHERE media_asset_id=$1`, id); err != nil {
 		return Asset{}, err
@@ -347,6 +350,12 @@ func (s *Service) Update(ctx context.Context, clientID, workspaceID, id, actorID
 		if _, err = tx.Exec(ctx, `INSERT INTO media_asset_tags(media_asset_id,tag) SELECT $1,unnest($2::text[])`, id, input.Tags); err != nil {
 			return Asset{}, err
 		}
+	}
+	if err = invalidateMediaApprovals(ctx, tx, id, actorID); err != nil {
+		return Asset{}, err
+	}
+	if err = draftProductForMedia(ctx, tx, clientID, workspaceID, productID, actorID); err != nil {
+		return Asset{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return Asset{}, err
@@ -358,29 +367,217 @@ func (s *Service) SetStatus(ctx context.Context, clientID, workspaceID, id, acto
 	if !map[string]bool{"DRAFT": true, "APPROVED": true, "REJECTED": true, "ARCHIVED": true}[status] || version < 1 {
 		return Asset{}, ErrInvalid
 	}
-	tag, err := s.pool.Exec(ctx, `UPDATE media_assets SET status=$4::content_status,version=version+1,updated_by=$5,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND version=$6 AND deleted_at IS NULL`, id, clientID, workspaceID, status, actorID, version)
+	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Asset{}, err
 	}
-	if tag.RowsAffected() != 1 {
+	defer func() { _ = tx.Rollback(ctx) }()
+	var productID *uuid.UUID
+	err = tx.QueryRow(ctx, `UPDATE media_assets SET status=$4::content_status,version=version+1,updated_by=$5,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND version=$6 AND deleted_at IS NULL RETURNING product_id`, id, clientID, workspaceID, status, actorID, version).Scan(&productID)
+	if errors.Is(err, pgx.ErrNoRows) {
 		return Asset{}, ErrConflict
+	}
+	if err != nil {
+		return Asset{}, err
+	}
+	if err = invalidateMediaApprovals(ctx, tx, id, actorID); err != nil {
+		return Asset{}, err
+	}
+	if err = draftProductForMedia(ctx, tx, clientID, workspaceID, productID, actorID); err != nil {
+		return Asset{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Asset{}, err
 	}
 	return s.Get(ctx, clientID, workspaceID, id)
 }
 func (s *Service) SoftDelete(ctx context.Context, clientID, workspaceID, id, actorID uuid.UUID, version int64) error {
-	tag, e := s.pool.Exec(ctx, `UPDATE media_assets SET deleted_at=now(),status='ARCHIVED',version=version+1,updated_by=$4,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND version=$5 AND deleted_at IS NULL`, id, clientID, workspaceID, actorID, version)
+	tx, e := s.pool.Begin(ctx)
 	if e != nil {
 		return e
 	}
-	if tag.RowsAffected() != 1 {
+	defer func() { _ = tx.Rollback(ctx) }()
+	var productID *uuid.UUID
+	var currentVersion int64
+	e = tx.QueryRow(ctx, `SELECT product_id,version FROM media_assets WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND deleted_at IS NULL FOR UPDATE`, id, clientID, workspaceID).Scan(&productID, &currentVersion)
+	if errors.Is(e, pgx.ErrNoRows) {
 		return ErrConflict
 	}
-	return nil
+	if e != nil {
+		return e
+	}
+	if currentVersion != version {
+		return ErrConflict
+	}
+	inUse, e := mediaInUse(ctx, tx, id)
+	if e != nil {
+		return e
+	}
+	if inUse {
+		return ErrInUse
+	}
+	_, e = tx.Exec(ctx, `UPDATE media_assets SET deleted_at=now(),status='ARCHIVED',version=version+1,updated_by=$4,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3`, id, clientID, workspaceID, actorID)
+	if e != nil {
+		return e
+	}
+	if e = draftProductForMedia(ctx, tx, clientID, workspaceID, productID, actorID); e != nil {
+		return e
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Service) AttachProduct(ctx context.Context, clientID, workspaceID, productID, assetID, actorID uuid.UUID, version int64) (Asset, error) {
+	if version < 1 {
+		return Asset{}, ErrInvalid
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Asset{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var productExists bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM products WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND status<>'ARCHIVED')`, productID, clientID, workspaceID).Scan(&productExists); err != nil {
+		return Asset{}, err
+	}
+	if !productExists {
+		return Asset{}, ErrNotFound
+	}
+	var currentProductID *uuid.UUID
+	var currentVersion int64
+	if err = tx.QueryRow(ctx, `SELECT product_id,version FROM media_assets WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND status<>'ARCHIVED' AND deleted_at IS NULL FOR UPDATE`, assetID, clientID, workspaceID).Scan(&currentProductID, &currentVersion); errors.Is(err, pgx.ErrNoRows) {
+		return Asset{}, ErrNotFound
+	} else if err != nil {
+		return Asset{}, err
+	}
+	if currentVersion != version {
+		return Asset{}, ErrConflict
+	}
+	if currentProductID != nil && *currentProductID != productID {
+		return Asset{}, ErrAssigned
+	}
+	if currentProductID == nil {
+		if _, err = tx.Exec(ctx, `UPDATE media_assets SET product_id=$4,version=version+1,updated_by=$5,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3`, assetID, clientID, workspaceID, productID, actorID); err != nil {
+			return Asset{}, err
+		}
+		if err = draftProductForMedia(ctx, tx, clientID, workspaceID, &productID, actorID); err != nil {
+			return Asset{}, err
+		}
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Asset{}, err
+	}
+	return s.Get(ctx, clientID, workspaceID, assetID)
+}
+
+func (s *Service) DetachProduct(ctx context.Context, clientID, workspaceID, productID, assetID, actorID uuid.UUID, version int64) (Asset, error) {
+	if version < 1 {
+		return Asset{}, ErrInvalid
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Asset{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var currentVersion int64
+	err = tx.QueryRow(ctx, `SELECT version FROM media_assets WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND product_id=$4 AND deleted_at IS NULL FOR UPDATE`, assetID, clientID, workspaceID, productID).Scan(&currentVersion)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Asset{}, ErrNotFound
+	}
+	if err != nil {
+		return Asset{}, err
+	}
+	if currentVersion != version {
+		return Asset{}, ErrConflict
+	}
+	inUse, err := mediaInUse(ctx, tx, assetID)
+	if err != nil {
+		return Asset{}, err
+	}
+	if inUse {
+		return Asset{}, ErrInUse
+	}
+	if _, err = tx.Exec(ctx, `UPDATE media_assets SET product_id=NULL,version=version+1,updated_by=$5,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND product_id=$4`, assetID, clientID, workspaceID, productID, actorID); err != nil {
+		return Asset{}, err
+	}
+	if err = draftProductForMedia(ctx, tx, clientID, workspaceID, &productID, actorID); err != nil {
+		return Asset{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Asset{}, err
+	}
+	return s.Get(ctx, clientID, workspaceID, assetID)
+}
+
+func mediaInUse(ctx context.Context, tx pgx.Tx, assetID uuid.UUID) (bool, error) {
+	var inUse bool
+	err := tx.QueryRow(ctx, `SELECT
+		EXISTS(SELECT 1 FROM product_facts WHERE source_asset_id=$1)
+		OR EXISTS(SELECT 1 FROM product_claim_sources WHERE media_asset_id=$1)
+		OR EXISTS(SELECT 1 FROM scene_assets sa JOIN scene_versions sv ON sv.id=sa.scene_version_id JOIN scenes s ON s.id=sv.scene_id AND s.current_version=sv.version WHERE sa.media_asset_id=$1)
+		OR EXISTS(SELECT 1 FROM scene_generation_edits e JOIN scene_generation_tasks g ON g.id=e.generation_task_id WHERE (e.replacement_asset_id=$1 OR $1=ANY(e.attached_product_asset_ids)) AND g.status NOT IN ('REJECTED','FAILED','CANCELLED'))`, assetID).Scan(&inUse)
+	return inUse, err
+}
+
+func invalidateMediaApprovals(ctx context.Context, tx pgx.Tx, assetID, actorID uuid.UUID) error {
+	const reason = "Referenced media asset changed"
+	if _, err := tx.Exec(ctx, `WITH referenced_scenes AS (
+		SELECT DISTINCT s.id AS scene_id,s.campaign_id,sv.version AS scene_version
+		FROM scene_assets sa JOIN scene_versions sv ON sv.id=sa.scene_version_id
+		JOIN scenes s ON s.id=sv.scene_id AND s.current_version=sv.version
+		WHERE sa.media_asset_id=$1
+	), affected_generations AS (
+		SELECT DISTINCT g.id AS generation_id,g.scene_id,g.campaign_id
+		FROM scene_generation_tasks g JOIN referenced_scenes s ON s.scene_id=g.scene_id AND s.scene_version=g.scene_version
+		WHERE g.status NOT IN ('REJECTED','FAILED','CANCELLED')
+		UNION
+		SELECT DISTINCT g.id,g.scene_id,g.campaign_id FROM scene_generation_edits e
+		JOIN scene_generation_tasks g ON g.id=e.generation_task_id
+		WHERE (e.replacement_asset_id=$1 OR $1=ANY(e.attached_product_asset_ids)) AND g.status NOT IN ('REJECTED','FAILED','CANCELLED')
+	), affected_scenes AS (
+		SELECT scene_id,campaign_id FROM referenced_scenes
+		UNION
+		SELECT s.id,s.campaign_id FROM scenes s JOIN affected_generations g ON g.generation_id=s.selected_generation_task_id
+	), affected_campaigns AS (
+		SELECT DISTINCT campaign_id FROM affected_scenes
+		UNION SELECT DISTINCT campaign_id FROM affected_generations
+	), changed AS (
+		UPDATE approvals a SET invalidated_at=now(),invalidation_reason=$3 FROM affected_campaigns x
+		WHERE a.campaign_id=x.campaign_id AND a.invalidated_at IS NULL AND (
+			(a.entity_type='SCENE' AND EXISTS(SELECT 1 FROM affected_scenes s WHERE s.scene_id=a.entity_id))
+			OR (a.entity_type='SCENE_GENERATION' AND EXISTS(SELECT 1 FROM affected_generations g WHERE g.generation_id=a.entity_id))
+			OR (a.entity_type='FINAL_RENDER' AND EXISTS(SELECT 1 FROM affected_scenes s WHERE s.campaign_id=a.campaign_id))
+		)
+		RETURNING a.id,a.entity_version,a.entity_hash
+	) INSERT INTO approval_events(approval_id,event_type,actor_id,entity_version,entity_hash,notes)
+	SELECT id,'INVALIDATED',$2,entity_version,entity_hash,$3 FROM changed`, assetID, actorID, reason); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE campaigns c SET status='SCENE_REVIEW',version=c.version+1,updated_by=$2,updated_at=now()
+		WHERE c.status IN ('SCENES_GENERATING','FINAL_RENDERING','FINAL_REVIEW','APPROVED','READY_TO_PUBLISH') AND (
+			EXISTS(SELECT 1 FROM scenes s JOIN scene_versions sv ON sv.scene_id=s.id AND sv.version=s.current_version JOIN scene_assets sa ON sa.scene_version_id=sv.id WHERE s.campaign_id=c.id AND sa.media_asset_id=$1)
+			OR EXISTS(SELECT 1 FROM scenes s JOIN scene_generation_tasks g ON g.id=s.selected_generation_task_id JOIN scene_generation_edits e ON e.generation_task_id=g.id WHERE s.campaign_id=c.id AND (e.replacement_asset_id=$1 OR $1=ANY(e.attached_product_asset_ids)))
+		)`, assetID, actorID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `UPDATE scenes s SET status='DRAFT',selected_generation_task_id=NULL,approved_at=NULL,approved_by=NULL,version=s.version+1,updated_by=$2,updated_at=now()
+		WHERE s.status='APPROVED' AND (
+			EXISTS(SELECT 1 FROM scene_versions sv JOIN scene_assets sa ON sa.scene_version_id=sv.id WHERE sv.scene_id=s.id AND sv.version=s.current_version AND sa.media_asset_id=$1)
+			OR EXISTS(SELECT 1 FROM scene_generation_tasks g JOIN scene_generation_edits e ON e.generation_task_id=g.id WHERE g.id=s.selected_generation_task_id AND (e.replacement_asset_id=$1 OR $1=ANY(e.attached_product_asset_ids)))
+		)`, assetID, actorID)
+	return err
+}
+
+func draftProductForMedia(ctx context.Context, tx pgx.Tx, clientID, workspaceID uuid.UUID, productID *uuid.UUID, actorID uuid.UUID) error {
+	if productID == nil {
+		return nil
+	}
+	_, err := tx.Exec(ctx, `UPDATE products SET status='DRAFT',version=version+1,updated_by=$4,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND status='APPROVED'`, *productID, clientID, workspaceID, actorID)
+	return err
 }
 
 func validateUpdate(input *UpdateInput) error {
 	input.Name = strings.TrimSpace(input.Name)
-	input.Category = strings.TrimSpace(input.Category)
+	input.Category = strings.ToUpper(strings.TrimSpace(input.Category))
 	input.Folder = strings.Trim(strings.TrimSpace(input.Folder), "/")
 	input.UsageRights = strings.TrimSpace(input.UsageRights)
 	if input.Name == "" || len(input.Name) > 240 || len(input.Category) > 120 || len(input.Folder) > 500 || input.UsageRights == "" || len(input.UsageRights) > 4000 || input.Version < 1 {
@@ -415,6 +612,7 @@ var allowed = map[string]struct {
 
 func validateUpload(i *UploadInput) (string, error) {
 	i.AssetType = strings.ToUpper(strings.TrimSpace(i.AssetType))
+	i.Category = strings.ToUpper(strings.TrimSpace(i.Category))
 	i.Name = strings.TrimSpace(i.Name)
 	i.Filename = filepath.Base(strings.TrimSpace(i.Filename))
 	i.MimeType = strings.ToLower(strings.TrimSpace(strings.Split(i.MimeType, ";")[0]))

@@ -25,4 +25,20 @@ func TestTravelLuggageSchema(t *testing.T) {
 	if _, err := registry.Validate(TravelLuggage, valid); err == nil {
 		t.Fatal("expected missing dimensions to fail")
 	}
+	pack, ok := registry.Get(TravelLuggage)
+	if !ok {
+		t.Fatal("expected travel-luggage pack")
+	}
+	if len(pack.AssetRequirements.Categories) != 14 {
+		t.Fatalf("expected 14 media categories, got %d", len(pack.AssetRequirements.Categories))
+	}
+	wantMinimum := []string{"HERO_IMAGE", "FRONT_VIEW", "SIDE_VIEW", "INTERIOR_VIEW", "PACKSHOT"}
+	if len(pack.AssetRequirements.MinimumForApproval) != len(wantMinimum) {
+		t.Fatalf("expected %d minimum categories, got %d", len(wantMinimum), len(pack.AssetRequirements.MinimumForApproval))
+	}
+	for index, category := range wantMinimum {
+		if pack.AssetRequirements.MinimumForApproval[index] != category {
+			t.Fatalf("minimum category %d: want %q, got %q", index, category, pack.AssetRequirements.MinimumForApproval[index])
+		}
+	}
 }

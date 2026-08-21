@@ -11,7 +11,9 @@ Milestones 0 through 6 and acceptance hardening gates 1 through 6 are complete f
 - Reorganized the authenticated shell around the hierarchy `Client → Workspace`, with role-aware client, workspace, and system navigation groups plus canonical nested frontend routes.
 - Rebuilt the client portfolio with debounced URL-backed search, status filters, pagination, responsive scan-friendly rows, a dirty-state-protected creation drawer, and explicit lifecycle confirmation.
 - Expanded client detail into a Customer Hub with overview, profile, workspace views, provider visibility for Admin, factual workspace readiness indicators, and canonical links into brand, Product Truth, media, character, campaign, Meta, and analytics workflows.
-- Preserved legacy scoped routes while adding canonical client/workspace paths; no database or OpenAPI change was required.
+- Added Product Media inside Product Truth as a product-scoped view over the existing `media_assets` source of truth. Operators can upload directly with `product_id`, link an unassigned Library asset, or detach an unused asset without deleting it; Media Library gained product filtering and ownership labels.
+- Loaded each vertical pack's media requirements and exposed product readiness. Product approval now requires an approved, unexpired, upload-verified asset for every minimum category. Scene and generation paths accept only eligible media for the campaign product, recheck eligibility before paid submission, and the Scene Director uses named pickers instead of raw media UUIDs.
+- Preserved legacy scoped routes while adding canonical client/workspace paths; those routing-only changes required no database or OpenAPI change.
 
 ## Phase 1 acceptance hardening
 
@@ -53,6 +55,14 @@ Milestones 0 through 6 and acceptance hardening gates 1 through 6 are complete f
 - Remotion's official license page classifies automated video applications under its Company/Automators licensing. Production release therefore requires an active license when the organization is outside the free-license terms; all Remotion packages are pinned to 4.0.513.
 
 ## Validation log
+
+### Product Media and generation source clarity — 2026-08-21
+
+- Kept Media Library as the single asset repository and implemented Product Media as contextual association through the existing `media_assets.product_id`; no schema migration or duplicate upload record was introduced.
+- Added tenant-scoped list filtering, safe attach/detach endpoints with optimistic versions, in-use protection, product readiness contracts, approval preconditions, and Product Truth draft/invalidation behavior when associated media changes.
+- Product detail now contains the readiness checklist, product-aware uploader, existing-asset linker, signed previews, media review actions, and a direct link back to Media Library. Media Library shows and filters product ownership, while Scene Director and take edits use human-readable product-media pickers.
+- Scene version persistence, generation start, and the paid-submit worker independently reject wrong-product, unapproved, expired, deleted, unverified, or non-visual product references. The PostgreSQL workflow fixture now also covers safe attachment, cross-product rejection, in-use detach protection, and scene approval invalidation after a referenced-media change.
+- OpenAPI client generation drift, targeted Go packages, strict web typecheck/lint, all 24 web tests, and the complete PostgreSQL 18 Testcontainers workflow passed. The workflow also exposed and corrected a stale `meta_ad_actions` worker alias (`x.client_id` → scoped `a.client_id`) before reaching a demo-only Meta action; no live or paid provider call was made.
 
 ### Edit completeness and password navigation — 2026-08-20
 

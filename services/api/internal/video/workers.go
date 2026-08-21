@@ -496,11 +496,30 @@ func fileDigest(filename string) (string, int64, error) {
 }
 
 func loadReferences(ctx context.Context, pool *pgxpool.Pool, store referenceStore, sceneVersionID uuid.UUID) ([]Reference, error) {
+	var productReferencesValid bool
+	if err := pool.QueryRow(ctx, `SELECT NOT EXISTS(
+		SELECT 1 FROM scene_assets sa
+		JOIN scene_versions sv ON sv.id=sa.scene_version_id
+		JOIN scenes s ON s.id=sv.scene_id
+		JOIN campaigns c ON c.id=s.campaign_id
+		LEFT JOIN media_assets a ON a.id=sa.media_asset_id
+		LEFT JOIN media_asset_versions v ON v.media_asset_id=a.id AND v.version=a.current_version
+		WHERE sa.scene_version_id=$1 AND sa.role='PRODUCT_REFERENCE' AND (
+			a.id IS NULL OR a.product_id IS DISTINCT FROM c.product_id OR a.deleted_at IS NOT NULL OR a.status<>'APPROVED'
+			OR (a.expires_at IS NOT NULL AND a.expires_at<=now()) OR v.verified_at IS NULL
+			OR a.asset_type NOT IN ('IMAGE','VIDEO','LOGO','SCREENSHOT','SCREEN_RECORDING')
+		)
+	)`, sceneVersionID).Scan(&productReferencesValid); err != nil {
+		return nil, err
+	}
+	if !productReferencesValid {
+		return nil, errors.New("product reference media is no longer eligible")
+	}
 	rows, err := pool.Query(ctx, `
 		SELECT role,storage_key,mime_type FROM (
 		  SELECT sa.role,v.storage_key,v.mime_type,0 AS source_order,a.id
-		  FROM scene_assets sa JOIN media_assets a ON a.id=sa.media_asset_id AND a.deleted_at IS NULL
-		  JOIN media_asset_versions v ON v.media_asset_id=a.id AND v.version=a.current_version
+		  FROM scene_assets sa JOIN media_assets a ON a.id=sa.media_asset_id AND a.deleted_at IS NULL AND a.status='APPROVED' AND (a.expires_at IS NULL OR a.expires_at>now())
+		  JOIN media_asset_versions v ON v.media_asset_id=a.id AND v.version=a.current_version AND v.verified_at IS NOT NULL
 		  WHERE sa.scene_version_id=$1
 		  UNION ALL
 		  SELECT CASE ca.purpose WHEN 'VOICE_REFERENCE' THEN 'AUDIO_REFERENCE' WHEN 'REFERENCE_VIDEO' THEN 'VIDEO_REFERENCE' ELSE 'CHARACTER_REFERENCE' END,

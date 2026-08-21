@@ -15,9 +15,10 @@ import (
 )
 
 var (
-	ErrInvalid  = errors.New("invalid product")
-	ErrNotFound = errors.New("product not found")
-	ErrConflict = errors.New("product conflict")
+	ErrInvalid       = errors.New("invalid product")
+	ErrNotFound      = errors.New("product not found")
+	ErrConflict      = errors.New("product conflict")
+	ErrMediaNotReady = errors.New("product media is not ready")
 )
 
 type Product struct {
@@ -74,6 +75,22 @@ type Input struct {
 	ChangeSummary    string     `json:"changeSummary"`
 	Version          int64      `json:"version"`
 }
+
+type MediaRequirement struct {
+	Category       string `json:"category"`
+	TotalAssets    int32  `json:"totalAssets"`
+	ApprovedAssets int32  `json:"approvedAssets"`
+	Ready          bool   `json:"ready"`
+}
+
+type MediaReadiness struct {
+	ProductID    uuid.UUID          `json:"productId"`
+	VerticalKey  string             `json:"verticalKey"`
+	Ready        bool               `json:"ready"`
+	Requirements []MediaRequirement `json:"requirements"`
+}
+
+type mediaCounts struct{ total, approved int32 }
 type Service struct {
 	pool      *pgxpool.Pool
 	verticals *verticals.Registry
@@ -104,6 +121,18 @@ func (s *Service) List(ctx context.Context, clientID, workspaceID uuid.UUID, sea
 }
 func (s *Service) Get(ctx context.Context, clientID, workspaceID, id uuid.UUID) (Product, error) {
 	return scan(s.pool.QueryRow(ctx, `SELECT `+cols+` FROM products p JOIN product_versions v ON v.product_id=p.id AND v.version=p.current_version LEFT JOIN LATERAL(SELECT data FROM product_vertical_data WHERE product_id=p.id ORDER BY created_at DESC LIMIT 1)d ON true WHERE p.id=$1 AND p.client_id=$2 AND p.workspace_id=$3`, id, clientID, workspaceID))
+}
+
+func (s *Service) MediaReadiness(ctx context.Context, clientID, workspaceID, id uuid.UUID) (MediaReadiness, error) {
+	var verticalKey string
+	err := s.pool.QueryRow(ctx, `SELECT vertical_key FROM products WHERE id=$1 AND client_id=$2 AND workspace_id=$3`, id, clientID, workspaceID).Scan(&verticalKey)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return MediaReadiness{}, ErrNotFound
+	}
+	if err != nil {
+		return MediaReadiness{}, err
+	}
+	return s.mediaReadiness(ctx, s.pool, clientID, workspaceID, id, verticalKey)
 }
 func (s *Service) Create(ctx context.Context, clientID, workspaceID, actorID uuid.UUID, i Input) (Product, error) {
 	pack, raw, e := s.validate(&i, false)
@@ -208,14 +237,89 @@ func (s *Service) SetStatus(ctx context.Context, clientID, workspaceID, id uuid.
 	if (status != "DRAFT" && status != "APPROVED" && status != "ARCHIVED") || version < 1 {
 		return Product{}, ErrInvalid
 	}
-	tag, e := s.pool.Exec(ctx, `UPDATE products SET status=$4::content_status,archived_at=CASE WHEN $4='ARCHIVED' THEN now() ELSE NULL END,version=version+1,updated_by=$5,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND version=$6`, id, clientID, workspaceID, status, actorID, version)
+	tx, e := s.pool.Begin(ctx)
+	if e != nil {
+		return Product{}, e
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var verticalKey string
+	var currentVersion int64
+	e = tx.QueryRow(ctx, `SELECT vertical_key,version FROM products WHERE id=$1 AND client_id=$2 AND workspace_id=$3 FOR UPDATE`, id, clientID, workspaceID).Scan(&verticalKey, &currentVersion)
+	if errors.Is(e, pgx.ErrNoRows) {
+		return Product{}, ErrNotFound
+	}
+	if e != nil {
+		return Product{}, e
+	}
+	if currentVersion != version {
+		return Product{}, ErrConflict
+	}
+	if status == "APPROVED" {
+		readiness, readinessErr := s.mediaReadiness(ctx, tx, clientID, workspaceID, id, verticalKey)
+		if readinessErr != nil {
+			return Product{}, readinessErr
+		}
+		if !readiness.Ready {
+			return Product{}, ErrMediaNotReady
+		}
+	}
+	tag, e := tx.Exec(ctx, `UPDATE products SET status=$4::content_status,archived_at=CASE WHEN $4='ARCHIVED' THEN now() ELSE NULL END,version=version+1,updated_by=$5,updated_at=now() WHERE id=$1 AND client_id=$2 AND workspace_id=$3 AND version=$6`, id, clientID, workspaceID, status, actorID, version)
 	if e != nil {
 		return Product{}, e
 	}
 	if tag.RowsAffected() != 1 {
 		return Product{}, ErrConflict
 	}
+	if e = tx.Commit(ctx); e != nil {
+		return Product{}, e
+	}
 	return s.Get(ctx, clientID, workspaceID, id)
+}
+
+type readinessQueryer interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func (s *Service) mediaReadiness(ctx context.Context, q readinessQueryer, clientID, workspaceID, productID uuid.UUID, verticalKey string) (MediaReadiness, error) {
+	pack, ok := s.verticals.Get(verticalKey)
+	if !ok {
+		return MediaReadiness{}, ErrInvalid
+	}
+	rows, err := q.Query(ctx, `SELECT upper(a.category),count(*)::int,count(*) FILTER (
+		WHERE a.status='APPROVED' AND (a.expires_at IS NULL OR a.expires_at>now()) AND v.verified_at IS NOT NULL
+	)::int FROM media_assets a
+	LEFT JOIN media_asset_versions v ON v.media_asset_id=a.id AND v.version=a.current_version
+	WHERE a.client_id=$1 AND a.workspace_id=$2 AND a.product_id=$3 AND a.deleted_at IS NULL
+		AND a.asset_type IN ('IMAGE','VIDEO','LOGO','SCREENSHOT','SCREEN_RECORDING')
+	GROUP BY upper(a.category)`, clientID, workspaceID, productID)
+	if err != nil {
+		return MediaReadiness{}, err
+	}
+	defer rows.Close()
+	byCategory := make(map[string]mediaCounts)
+	for rows.Next() {
+		var category string
+		var value mediaCounts
+		if err = rows.Scan(&category, &value.total, &value.approved); err != nil {
+			return MediaReadiness{}, err
+		}
+		byCategory[category] = value
+	}
+	if err = rows.Err(); err != nil {
+		return MediaReadiness{}, err
+	}
+	return buildMediaReadiness(productID, verticalKey, pack.AssetRequirements.MinimumForApproval, byCategory), nil
+}
+
+func buildMediaReadiness(productID uuid.UUID, verticalKey string, minimum []string, byCategory map[string]mediaCounts) MediaReadiness {
+	result := MediaReadiness{ProductID: productID, VerticalKey: verticalKey, Ready: true, Requirements: make([]MediaRequirement, 0, len(minimum))}
+	for _, category := range minimum {
+		value := byCategory[category]
+		requirement := MediaRequirement{Category: category, TotalAssets: value.total, ApprovedAssets: value.approved, Ready: value.approved > 0}
+		result.Requirements = append(result.Requirements, requirement)
+		result.Ready = result.Ready && requirement.Ready
+	}
+	return result
 }
 func (s *Service) validate(i *Input, version bool) (verticals.Pack, []byte, error) {
 	i.Name = strings.TrimSpace(i.Name)
