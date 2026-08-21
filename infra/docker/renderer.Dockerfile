@@ -15,7 +15,7 @@ COPY services/renderer services/renderer
 COPY packages packages
 RUN bun --filter @studio/video-templates build && bun --filter @studio/renderer build
 
-FROM node:24.6.0-bookworm-slim AS runtime
+FROM node:26.7.0-bookworm-slim AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends chromium ffmpeg fonts-noto-core ca-certificates \
     && rm -rf /var/lib/apt/lists/*
