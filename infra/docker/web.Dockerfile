@@ -16,6 +16,7 @@ COPY --from=dependencies /workspace /workspace
 COPY apps/web apps/web
 COPY packages packages
 COPY openapi openapi
+COPY verticals verticals
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN cd apps/web && node node_modules/next/dist/bin/next build --webpack
 

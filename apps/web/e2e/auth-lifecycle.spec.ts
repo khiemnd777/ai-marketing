@@ -45,7 +45,7 @@ test("auth gate, forced password change, admin reset/status, session revocation,
   await page.getByLabel("Tên công ty").fill(clientName);
   await page.getByLabel("Người liên hệ").fill("Auth Administrator");
   await page.getByLabel("Email", { exact: true }).fill(`auth-${suffix}@example.com`);
-  await page.getByLabel("Ngành").fill("Software");
+  await page.getByLabel("Ngành").selectOption("Software");
   await page.getByRole("button", { name: "Tạo khách hàng" }).click();
   await expect(page.getByRole("heading", { name: clientName })).toBeVisible();
   await page.getByRole("button", { name: "Thêm workspace" }).click();

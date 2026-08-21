@@ -7,11 +7,12 @@ import { Archive, ArrowLeft, ArrowRight, Building2, Mail, MapPin, Plus, RotateCc
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useForm, useWatch } from "react-hook-form";
 import { usePermissions } from "@/components/auth-context";
 import { Badge, Button, Card, Field, PageHeader, SkeletonRows, StatePanel, inputClass, textareaClass } from "@/components/ui";
 import { api } from "@/lib/api";
 import { clientFormSchema, type ClientFormValues as Values } from "@/lib/client-form";
+import { includeCurrentOption, industryOptions, marketOptions } from "@/lib/form-options";
 import { apiError, newIdempotencyKey } from "@/lib/problem";
 import { studioRoutes } from "@/lib/studio-routes";
 
@@ -170,6 +171,8 @@ function CreateClientDrawer({ onClose }: { onClose: () => void }) {
     resolver: zodResolver(clientFormSchema),
     defaultValues: { companyName: "", contactName: "", contactEmail: "", phone: "", industry: "", market: "Việt Nam", internalNotes: "" },
   });
+  const selectedIndustry = useWatch({ control: form.control, name: "industry" });
+  const selectedMarket = useWatch({ control: form.control, name: "market" });
   const create = useMutation({
     mutationFn: async (values: Values) => {
       const { data, error } = await api.POST("/clients", { params: { header: { "Idempotency-Key": newIdempotencyKey() } }, body: { ...values, contactEmail: values.contactEmail || null, phone: values.phone || null } });
@@ -222,7 +225,7 @@ function CreateClientDrawer({ onClose }: { onClose: () => void }) {
       <form className="grid gap-6 p-5 sm:p-7" noValidate onSubmit={form.handleSubmit((values) => create.mutate(values))}>
         <fieldset className="grid gap-4"><legend className="mb-4 font-serif text-lg font-bold">Thông tin chính</legend>
           <Field label="Tên công ty" error={form.formState.errors.companyName?.message}><input className={inputClass} {...company} ref={(element) => { company.ref(element); firstFieldRef.current = element; }} aria-invalid={Boolean(form.formState.errors.companyName)} /></Field>
-          <div className="grid gap-4 sm:grid-cols-2"><Field label="Ngành" error={form.formState.errors.industry?.message}><input className={inputClass} {...form.register("industry")} /></Field><Field label="Thị trường" error={form.formState.errors.market?.message}><input className={inputClass} {...form.register("market")} /></Field></div>
+          <div className="grid gap-4 sm:grid-cols-2"><Field label="Ngành" error={form.formState.errors.industry?.message}><select className={inputClass} {...form.register("industry")}><option value="">Chưa chọn</option>{includeCurrentOption(industryOptions, selectedIndustry).map((option)=><option key={option.value} value={option.value}>{option.label}</option>)}</select></Field><Field label="Thị trường" error={form.formState.errors.market?.message}><select className={inputClass} {...form.register("market")}><option value="">Chưa chọn</option>{includeCurrentOption(marketOptions, selectedMarket).map((option)=><option key={option.value} value={option.value}>{option.label}</option>)}</select></Field></div>
         </fieldset>
         <fieldset className="grid gap-4"><legend className="mb-4 font-serif text-lg font-bold">Người liên hệ</legend>
           <Field label="Tên người liên hệ" error={form.formState.errors.contactName?.message}><input className={inputClass} {...form.register("contactName")} /></Field>

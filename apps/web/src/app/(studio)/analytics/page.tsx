@@ -8,6 +8,7 @@ import { Suspense, useMemo, useState } from "react";
 import { useStudioScope } from "@/components/studio-scope";
 import { Badge, Button, Card, Field, PageHeader, SkeletonRows, StatePanel, inputClass } from "@/components/ui";
 import { api } from "@/lib/api";
+import { includeCurrentOption } from "@/lib/form-options";
 import { apiError } from "@/lib/problem";
 
 type Recommendation = components["schemas"]["AnalyticsRecommendation"];
@@ -31,6 +32,15 @@ function AnalyticsContent() {
   const scope = { clientId, workspaceId };
   const query = { from, to, campaignId: campaignId || undefined };
   const qc = useQueryClient();
+  const campaigns = useQuery({
+    queryKey: ["campaigns", clientId, workspaceId, "analytics-filter"],
+    enabled: !!clientId && !!workspaceId,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/clients/{clientId}/workspaces/{workspaceId}/campaigns", { params: { path: scope, query: {} } });
+      if (error || !data) throw apiError(error, "Không thể tải campaign để lọc analytics.");
+      return data;
+    },
+  });
   const summary = useQuery({
     queryKey: ["analytics-summary", clientId, workspaceId, from, to, campaignId],
     enabled: !!clientId && !!workspaceId,
@@ -64,7 +74,7 @@ function AnalyticsContent() {
     <Card className="mb-6 grid gap-4 p-5 md:grid-cols-3">
       <Field label="Từ ngày"><input className={inputClass} type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></Field>
       <Field label="Đến ngày"><input className={inputClass} type="date" value={to} onChange={(event) => setTo(event.target.value)} /></Field>
-      <Field label="Campaign ID (tùy chọn)"><input className={inputClass} value={campaignId} onChange={(event) => setCampaignId(event.target.value.trim())} placeholder="UUID" /></Field>
+      <Field label="Campaign (tùy chọn)"><select className={inputClass} value={campaignId} disabled={campaigns.isLoading} onChange={(event) => setCampaignId(event.target.value)}><option value="">Tất cả campaign</option>{includeCurrentOption((campaigns.data?.items ?? []).map((item) => ({ value: item.id, label: `${item.name} · ${item.status}` })), campaignId).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>{campaigns.error ? <span role="alert" className="text-xs font-semibold text-[var(--coral)]">{campaigns.error.message}</span> : null}</Field>
     </Card>
     {summary.isLoading ? <SkeletonRows /> : summary.error ? <StatePanel title="Không thể tải analytics" tone="danger">{summary.error.message}</StatePanel> : summary.data ? <>
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

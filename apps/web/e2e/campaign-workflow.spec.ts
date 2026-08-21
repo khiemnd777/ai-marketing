@@ -45,7 +45,7 @@ test("complete no-cost product truth to analytics journey", async ({ page }) => 
   await page.getByLabel("Tên công ty").fill(clientName);
   await page.getByLabel("Người liên hệ").fill("Journey Operator");
   await page.getByLabel("Email", { exact: true }).fill(`journey-${suffix}@example.com`);
-  await page.getByLabel("Ngành").fill("Travel");
+  await page.getByLabel("Ngành").selectOption("Du lịch");
   await page.getByRole("button", { name: "Tạo khách hàng" }).click();
   await expect(page).toHaveURL(/\/clients\/[0-9a-f-]+$/);
 

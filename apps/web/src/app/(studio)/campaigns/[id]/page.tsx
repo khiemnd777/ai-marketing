@@ -7,6 +7,7 @@ import { usePermissions } from "@/components/auth-context";
 import { CampaignHeader, useCampaignRoute } from "@/components/campaign-workflow";
 import { Badge, Button, Card, Field, SkeletonRows, StatePanel, inputClass, textareaClass } from "@/components/ui";
 import { api } from "@/lib/api";
+import { countryOptions, currencyOptions, includeCurrentOption, marketOptions } from "@/lib/form-options";
 import { apiError } from "@/lib/problem";
 
 type Campaign = components["schemas"]["Campaign"];
@@ -39,8 +40,11 @@ function CampaignBrief() {
         <Field label="Mục tiêu"><select className={inputClass} value={form.objective} onChange={(e) => change("objective", e.target.value as CampaignInput["objective"])}>{["PRODUCT_INTRODUCTION", "AWARENESS", "ENGAGEMENT", "WEBSITE_TRAFFIC", "LEAD_GENERATION", "SALES", "PROMOTION"].map((value) => <option key={value}>{value}</option>)}</select></Field>
         <Field label="Format"><select className={inputClass} value={form.videoFormat} onChange={(e) => change("videoFormat", e.target.value as CampaignInput["videoFormat"])}><option value="INTERVIEW_REVIEW">Interview Review</option><option value="PROBLEM_SOLUTION">Problem Solution</option></select></Field>
         <Field label="Thời lượng"><select className={inputClass} value={form.durationSeconds} onChange={(e) => change("durationSeconds", Number(e.target.value) as 30 | 45)}><option value={30}>30 giây</option><option value={45}>45 giây</option></select></Field>
-        <Field label="Thị trường"><input className={inputClass} value={form.market} onChange={(e) => change("market", e.target.value)} /></Field>
+        <Field label="Thị trường"><select className={inputClass} value={form.market} onChange={(e) => change("market", e.target.value)}>{includeCurrentOption(marketOptions, form.market).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+        <Field label="Quốc gia"><select className={inputClass} value={form.country} onChange={(e) => change("country", e.target.value)}>{includeCurrentOption(countryOptions, form.country).map((option) => <option key={option.value} value={option.value}>{option.label} · {option.value}</option>)}</select></Field>
         <Field label="Ngôn ngữ"><select className={inputClass} value={form.language} onChange={(e) => change("language", e.target.value as "vi" | "en")}><option value="vi">Tiếng Việt</option><option value="en">English</option></select></Field>
+        <Field label="Ngân sách ads"><input className={inputClass} type="number" min="0" value={form.plannedAdsBudget ?? ""} onChange={(e) => change("plannedAdsBudget", e.target.value ? Number(e.target.value) : null)} /></Field>
+        <Field label="Tiền tệ"><select className={inputClass} value={form.budgetCurrency ?? ""} onChange={(e) => change("budgetCurrency", e.target.value || null)}><option value="">Chưa chọn</option>{includeCurrentOption(currencyOptions, form.budgetCurrency).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
         <div className="md:col-span-2"><Field label="Đối tượng"><textarea className={textareaClass} value={form.targetAudience} onChange={(e) => change("targetAudience", e.target.value)} /></Field></div>
         <Field label="Tone"><textarea className={textareaClass} value={form.tone} onChange={(e) => change("tone", e.target.value)} /></Field>
         <Field label="Offer"><textarea className={textareaClass} value={form.offer} onChange={(e) => change("offer", e.target.value)} /></Field>

@@ -57,6 +57,19 @@ Milestones 0 through 6 and acceptance hardening gates 1 through 6 are complete f
 
 ## Validation log
 
+### Web container vertical-pack packaging — 2026-08-21
+
+- Fixed the development Web image build after the guided-options work introduced a compile-time import from `verticals/travel-luggage/asset-requirements.json`. Host builds passed because the repository tree was present, but `infra/docker/web.Dockerfile` copied only the Web app, packages and OpenAPI into its isolated build stage.
+- The Web Docker build stage now copies `verticals/` before running Next.js, keeping the vertical pack as the single source for media-category options. Added a packaging regression test that requires this copy to precede the containerized Next build.
+- The exact failing `docker compose ... build web` command and the complete `make restart` workflow passed. The local API, renderer and PostgreSQL health checks are green, the Web application responds on port 3300, and all 41 Web tests plus lint and typecheck passed.
+
+### Guided form options and entity pickers — 2026-08-21
+
+- Replaced user-facing raw IDs with scoped, human-readable selectors in analytics campaign filters, final creative selection, Meta publishing create/edit flows, scene Product Truth references, and script character roles. Existing values remain visible during edits so legacy records are not silently rewritten.
+- Replaced closed-vocabulary text fields with shared options for character source/profile attributes, client industry/market, workspace timezone, brand language, campaign market/country/currency, media categories, and travel-luggage attributes. Provider models plus concept/scene camera, environment and product placement use suggested presets while preserving custom configured values.
+- Replaced raw travel-luggage JSON editing with a validated structured form and derived media categories from the vertical pack. The same product update endpoint and version remain in use, so Product Truth approval invalidation and locked-value safeguards are unchanged; no database or OpenAPI change was required.
+- Added reusable option and multi-choice controls, legacy-value preservation, travel-luggage mapping/validation tests, and updated browser journeys to select the new client industry options. Passed `git diff --check`, OpenAPI generation drift, the full `make verify` gate, 40/40 web tests, all Go tests, workspace lint/typecheck/tests/build, and both development and production Compose validation using non-secret configuration-only values.
+
 ### Brand Logo and Media Library lifecycle — 2026-08-21
 
 - Kept Media Library as the single file/lifecycle source and used the existing ordered `brand_versions.logo_asset_ids`; no schema migration or duplicate upload record was introduced. The first eligible ID is the primary renderer logo and later IDs are approved alternates.

@@ -9,6 +9,7 @@ import { useForm, useWatch } from "react-hook-form";
 import { z } from "zod";
 import { Badge, Button, Card, Field, inputClass, PageHeader, SkeletonRows, StatePanel } from "@/components/ui";
 import { api } from "@/lib/api";
+import { providerSettingSuggestions } from "@/lib/form-options";
 import { apiError } from "@/lib/problem";
 
 type Provider = components["schemas"]["ProviderConfiguration"];
@@ -193,7 +194,7 @@ function ProviderCard({ clientId, provider }: { clientId: string; provider: Prov
     <form className="grid gap-5 p-6" onSubmit={form.handleSubmit((values) => mutation.mutate(values))} noValidate>
       <label className="flex min-h-11 items-center gap-3 rounded-2xl border border-[var(--line)] bg-white px-4 text-sm font-semibold"><input type="checkbox" className="size-5 accent-[var(--moss)]" {...form.register("enabled")} />Cho phép dùng provider này cho khách hàng</label>
       <fieldset disabled={disabled || mutation.isPending} className="grid gap-4 disabled:opacity-55"><legend className="sr-only">{definition.title} settings</legend>
-        <div className="grid gap-4 md:grid-cols-2">{definition.fields.map((field) => <SettingField key={field.name} field={field} form={form} />)}</div>
+        <div className="grid gap-4 md:grid-cols-2">{definition.fields.map((field) => <SettingField key={field.name} field={field} form={form} suggestionListId={`${provider.provider}-${field.name}-suggestions`} />)}</div>
         {definition.secrets.length ? <div className="grid gap-4 rounded-2xl border border-[var(--line)] bg-[#f7f7f1] p-4"><div className="flex items-center gap-2"><KeyRound className="size-4 text-[var(--moss)]" /><h3 className="text-sm font-bold">Secrets</h3></div>{definition.secrets.map((secret) => {
           const hasValue = configured.has(secret.name);
           return <div key={secret.name} className="grid gap-2"><Field label={secret.label}><input type="password" autoComplete="new-password" className={inputClass} placeholder={hasValue ? "Đã lưu — để trống để giữ nguyên" : "Nhập secret"} {...form.register(`secrets.${secret.name}`)} /></Field>{hasValue ? <label className="flex min-h-11 items-center gap-2 text-xs font-semibold text-[var(--muted)]"><input type="checkbox" value={secret.name} className="size-4 accent-[var(--coral)]" {...form.register("clearSecrets")} />Xóa secret đang lưu</label> : null}</div>;
@@ -206,11 +207,12 @@ function ProviderCard({ clientId, provider }: { clientId: string; provider: Prov
   </Card>;
 }
 
-function SettingField({ field, form }: { field: FieldDefinition; form: ReturnType<typeof useForm<FormValues>> }) {
+function SettingField({ field, form, suggestionListId }: { field: FieldDefinition; form: ReturnType<typeof useForm<FormValues>>; suggestionListId: string }) {
   const registration = form.register(`settings.${field.name}`, { required: field.required ? `${field.label} là bắt buộc.` : false });
   const error = form.formState.errors.settings?.[field.name]?.message;
+  const suggestions = providerSettingSuggestions[field.name] ?? [];
   return <Field label={field.label} error={typeof error === "string" ? error : undefined}>
     {field.type === "select" ? <select className={inputClass} {...registration}>{field.options?.map((option) => <option key={option} value={option}>{option}</option>)}</select>
-      : <><input className={inputClass} type={field.type ?? "text"} min={field.min} step={field.step} {...registration} />{field.help ? <span className="text-xs font-normal text-[var(--muted)]">{field.help}</span> : null}</>}
+      : <><input className={inputClass} type={field.type ?? "text"} min={field.min} step={field.step} list={suggestions.length ? suggestionListId : undefined} {...registration} />{suggestions.length ? <datalist id={suggestionListId}>{suggestions.map((suggestion) => <option key={suggestion} value={suggestion} />)}</datalist> : null}{field.help ? <span className="text-xs font-normal text-[var(--muted)]">{field.help}</span> : null}</>}
   </Field>;
 }

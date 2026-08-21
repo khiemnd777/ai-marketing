@@ -31,7 +31,7 @@ test("login, CSRF mutation, client creation, and workspace creation work through
   await page.getByLabel("Tên công ty").fill(companyName);
   await page.getByLabel("Người liên hệ").fill("E2E Operator");
   await page.getByLabel("Email", { exact: true }).fill(`e2e-${suffix}@example.com`);
-  await page.getByLabel("Ngành").fill("Travel");
+  await page.getByLabel("Ngành").selectOption("Du lịch");
 
   const clientResponsePromise = page.waitForResponse(
     (response) => response.url().endsWith("/api/studio/clients") && response.request().method() === "POST",

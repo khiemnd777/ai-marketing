@@ -10,6 +10,7 @@ import { type DragEvent, type ChangeEvent, useEffect, useId, useRef, useState } 
 import { Badge, Button, Card, inputClass } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import { api } from "@/lib/api";
+import { includeCurrentOption, mediaCategoryOptions } from "@/lib/form-options";
 import { apiError, newIdempotencyKey } from "@/lib/problem";
 
 type Asset = components["schemas"]["MediaAsset"];
@@ -219,7 +220,7 @@ function FilePreviewCard({ file, uppy, disabled, logoOnly }: { file: UploaderFil
         <summary className="min-h-8 cursor-pointer text-sm font-bold text-[var(--moss)]">Chỉnh thông tin file</summary>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <MetadataField label="Tên hiển thị" fileName={file.name}><input className={inputClass} value={String(file.meta.displayName || "")} onChange={(event) => updateMeta("displayName", event.target.value)} disabled={disabled} /></MetadataField>
-          <MetadataField label="Danh mục" fileName={file.name}><input className={inputClass} value={String(file.meta.category || "")} onChange={(event) => updateMeta("category", event.target.value)} disabled={disabled || logoOnly} /></MetadataField>
+          <MetadataField label="Danh mục" fileName={file.name}><select className={inputClass} value={String(file.meta.category || "")} onChange={(event) => updateMeta("category", event.target.value)} disabled={disabled || logoOnly}>{includeCurrentOption(mediaCategoryOptions,String(file.meta.category||"")).map((option)=><option key={option.value} value={option.value}>{option.label}</option>)}</select></MetadataField>
           <MetadataField label="Folder" fileName={file.name}><input className={inputClass} value={String(file.meta.folder || "")} onChange={(event) => updateMeta("folder", event.target.value)} disabled={disabled} /></MetadataField>
           <MetadataField label="Tags" fileName={file.name}><input className={inputClass} value={String(file.meta.tags || "")} onChange={(event) => updateMeta("tags", event.target.value)} disabled={disabled} placeholder="hero, summer, packshot" /></MetadataField>
           <div className="sm:col-span-2"><MetadataField label="Quyền sử dụng" fileName={file.name}><input className={inputClass} value={String(file.meta.usageRights || "")} onChange={(event) => updateMeta("usageRights", event.target.value)} disabled={disabled} /></MetadataField></div>
