@@ -23,15 +23,15 @@ import (
 var ErrInvalidObjectKey = errors.New("invalid object key")
 
 type PresignedRequest struct {
-	URL       string
-	Method    string
-	Headers   map[string]string
-	ExpiresAt time.Time
+	URL       string            `json:"url"`
+	Method    string            `json:"method"`
+	Headers   map[string]string `json:"headers"`
+	ExpiresAt time.Time         `json:"expiresAt"`
 }
 
 type UploadedPart struct {
-	PartNumber int32
-	ETag       string
+	PartNumber int32  `json:"partNumber"`
+	ETag       string `json:"etag"`
 }
 
 type ObjectMetadata struct {
@@ -64,9 +64,16 @@ func NewS3Store(ctx context.Context, cfg config.R2Config) (*S3Store, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
-	endpoint, err := url.Parse(cfg.Endpoint)
+	endpoint, err := parseEndpoint(cfg.Endpoint)
 	if err != nil || endpoint.Scheme == "" || endpoint.Host == "" {
 		return nil, errors.New("R2_ENDPOINT must be an absolute URL")
+	}
+	browserEndpoint := endpoint
+	if cfg.BrowserEndpoint != "" {
+		browserEndpoint, err = parseEndpoint(cfg.BrowserEndpoint)
+		if err != nil || browserEndpoint.Scheme == "" || browserEndpoint.Host == "" {
+			return nil, errors.New("R2_BROWSER_ENDPOINT must be an absolute URL")
+		}
 	}
 	awsConfig, err := awsconfig.LoadDefaultConfig(ctx,
 		awsconfig.WithRegion("auto"),
@@ -77,9 +84,29 @@ func NewS3Store(ctx context.Context, cfg config.R2Config) (*S3Store, error) {
 	}
 	client := s3.NewFromConfig(awsConfig, func(options *s3.Options) {
 		options.BaseEndpoint = aws.String(cfg.Endpoint)
-		options.UsePathStyle = strings.Contains(endpoint.Host, "localhost") || strings.HasPrefix(endpoint.Host, "127.") || endpoint.Host == "minio"
+		options.UsePathStyle = usePathStyle(endpoint)
 	})
-	return &S3Store{bucket: cfg.Bucket, client: client, presigner: s3.NewPresignClient(client)}, nil
+	presignClient := client
+	if cfg.BrowserEndpoint != "" {
+		presignClient = s3.NewFromConfig(awsConfig, func(options *s3.Options) {
+			options.BaseEndpoint = aws.String(cfg.BrowserEndpoint)
+			options.UsePathStyle = usePathStyle(browserEndpoint)
+		})
+	}
+	return &S3Store{bucket: cfg.Bucket, client: client, presigner: s3.NewPresignClient(presignClient)}, nil
+}
+
+func parseEndpoint(raw string) (*url.URL, error) {
+	endpoint, err := url.Parse(raw)
+	if err != nil || endpoint.Scheme == "" || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+		return nil, errors.New("object storage endpoint must be an absolute URL without credentials, query, or fragment")
+	}
+	return endpoint, nil
+}
+
+func usePathStyle(endpoint *url.URL) bool {
+	host := endpoint.Hostname()
+	return host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasPrefix(host, "127.") || host == "::1" || host == "minio"
 }
 
 func (s *S3Store) PresignPut(ctx context.Context, key, contentType string, contentLength int64, expires time.Duration) (PresignedRequest, error) {
@@ -181,6 +208,9 @@ func (s *S3Store) Head(ctx context.Context, key string) (ObjectMetadata, error) 
 		return ObjectMetadata{}, fmt.Errorf("inspect R2 object: %w", err)
 	}
 	metadata := ObjectMetadata{Metadata: result.Metadata}
+	if metadata.Metadata == nil {
+		metadata.Metadata = map[string]string{}
+	}
 	if result.ContentType != nil {
 		metadata.ContentType = *result.ContentType
 	}

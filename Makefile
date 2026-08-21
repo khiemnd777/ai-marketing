@@ -1,6 +1,6 @@
 SHELL := /bin/sh
 
-.PHONY: start stop restart dev install generate migrate test test-race lint typecheck build verify compose-config
+.PHONY: start stop restart dev install generate migrate configure-local-storage test test-race lint typecheck build verify compose-config
 
 ENV_FILE ?= .env.local
 COMPOSE_FILE ?= infra/compose/dev.yml
@@ -33,6 +33,10 @@ generate:
 
 migrate:
 	$(COMPOSE) run --rm migrate
+
+configure-local-storage:
+	test -n "$(CLIENT_ID)"
+	$(COMPOSE) exec -T api /app/configure-local-storage "$(CLIENT_ID)"
 
 test:
 	cd services/api && GOCACHE="$$PWD/.gocache" go test ./...

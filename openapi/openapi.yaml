@@ -2370,7 +2370,7 @@ components:
         version: { type: integer, minimum: 1 }
     MediaAsset:
       type: object
-      required: [id, clientId, workspaceId, assetType, category, name, folder, status, usageRights, tags, version, createdAt, updatedAt]
+      required: [id, clientId, workspaceId, assetType, category, name, folder, status, usageRights, tags, readyForUse, version, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
         clientId: { type: string, format: uuid }
@@ -2390,6 +2390,7 @@ components:
         width: { type: [integer, 'null'] }
         height: { type: [integer, 'null'] }
         durationMs: { type: [integer, 'null'] }
+        readyForUse: { type: boolean, description: Current upload version is verified and has a SHA-256 checksum. }
         version: { type: integer, minimum: 1 }
         expiresAt: { type: [string, 'null'], format: date-time }
         createdAt: { type: string, format: date-time }

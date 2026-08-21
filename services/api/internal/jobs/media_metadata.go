@@ -2,6 +2,8 @@ package jobs
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -103,7 +105,8 @@ func (w *MediaMetadataWorker) Work(ctx context.Context, job *river.Job[MediaMeta
 	}
 	defer os.RemoveAll(dir)
 	input := filepath.Join(dir, "original"+extensionForMIME(mimeType))
-	if err := w.download(ctx, store, storageKey, input); err != nil {
+	checksum, err := w.download(ctx, store, storageKey, input)
+	if err != nil {
 		return err
 	}
 
@@ -117,7 +120,7 @@ func (w *MediaMetadataWorker) Work(ctx context.Context, job *river.Job[MediaMeta
 	}
 	if strings.HasPrefix(mimeType, "image/") || strings.HasPrefix(mimeType, "video/") {
 		thumbnail := filepath.Join(dir, "thumbnail.jpg")
-		if err := renderThumbnail(ctx, input, thumbnail); err != nil {
+		if err := renderThumbnail(ctx, input, thumbnail, strings.HasPrefix(mimeType, "video/")); err != nil {
 			return fmt.Errorf("render media thumbnail: %w", err)
 		}
 		file, err := os.Open(thumbnail)
@@ -145,7 +148,7 @@ func (w *MediaMetadataWorker) Work(ctx context.Context, job *river.Job[MediaMeta
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	result, err := tx.Exec(ctx, `UPDATE media_asset_versions SET width=$4,height=$5,duration_ms=$6,codec=NULLIF($7,''),bitrate_bps=$8,thumbnail_storage_key=NULLIF($9,''),metadata=metadata||jsonb_build_object('probe',$10::jsonb,'processedAt',now()) WHERE media_asset_id=$1 AND client_id=$2 AND workspace_id=$3`, job.Args.AssetID, job.Args.ClientID, job.Args.WorkspaceID, probe.Width, probe.Height, probe.DurationMS, probe.Codec, probe.BitrateBPS, thumbnailKey, probeJSON)
+	result, err := tx.Exec(ctx, `UPDATE media_asset_versions SET checksum_sha256=$4,width=$5,height=$6,duration_ms=$7,codec=NULLIF($8,''),bitrate_bps=$9,thumbnail_storage_key=NULLIF($10,''),metadata=metadata||jsonb_build_object('probe',$11::jsonb,'processedAt',now()) WHERE media_asset_id=$1 AND client_id=$2 AND workspace_id=$3`, job.Args.AssetID, job.Args.ClientID, job.Args.WorkspaceID, checksum, probe.Width, probe.Height, probe.DurationMS, probe.Codec, probe.BitrateBPS, thumbnailKey, probeJSON)
 	if err != nil {
 		return err
 	}
@@ -159,22 +162,33 @@ func (w *MediaMetadataWorker) Work(ctx context.Context, job *river.Job[MediaMeta
 	return tx.Commit(ctx)
 }
 
-func (w *MediaMetadataWorker) download(ctx context.Context, store storage.ObjectStore, key, destination string) error {
+func (w *MediaMetadataWorker) download(ctx context.Context, store storage.ObjectStore, key, destination string) (string, error) {
 	body, err := store.Get(ctx, key)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer body.Close()
 	file, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
-		return err
+		return "", err
 	}
-	_, copyErr := io.Copy(file, body)
+	checksum, copyErr := copyAndChecksum(file, body)
 	closeErr := file.Close()
 	if copyErr != nil {
-		return fmt.Errorf("download media object: %w", copyErr)
+		return "", fmt.Errorf("download media object: %w", copyErr)
 	}
-	return closeErr
+	if closeErr != nil {
+		return "", closeErr
+	}
+	return checksum, nil
+}
+
+func copyAndChecksum(destination io.Writer, source io.Reader) (string, error) {
+	digest := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(destination, digest), source); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(digest.Sum(nil)), nil
 }
 
 func probeFile(ctx context.Context, filename string) (mediaProbe, error) {
@@ -233,8 +247,16 @@ func parseProbe(value []byte) (mediaProbe, error) {
 	return result, nil
 }
 
-func renderThumbnail(ctx context.Context, input, output string) error {
-	return exec.CommandContext(ctx, "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", input, "-ss", "0.1", "-frames:v", "1", "-vf", "scale=480:-2", output).Run()
+func renderThumbnail(ctx context.Context, input, output string, video bool) error {
+	return exec.CommandContext(ctx, "ffmpeg", thumbnailArgs(input, output, video)...).Run()
+}
+
+func thumbnailArgs(input, output string, video bool) []string {
+	args := []string{"-hide_banner", "-loglevel", "error", "-y"}
+	if video {
+		args = append(args, "-ss", "0.1")
+	}
+	return append(args, "-i", input, "-frames:v", "1", "-vf", "scale=480:-2", output)
 }
 
 func extensionForMIME(mime string) string {

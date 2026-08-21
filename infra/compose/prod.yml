@@ -61,6 +61,7 @@ services:
     image: ${WEB_IMAGE:?WEB_IMAGE is required}
     environment:
       API_URL: http://api:8080
+      BROWSER_STORAGE_ORIGINS: ${BROWSER_STORAGE_ORIGINS:-https://*.r2.cloudflarestorage.com}
     depends_on: [api, renderer]
     restart: unless-stopped
 

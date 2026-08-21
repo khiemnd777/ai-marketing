@@ -92,10 +92,11 @@ type seedanceSettings struct {
 }
 
 type r2Settings struct {
-	AccountID     string `json:"accountId"`
-	Bucket        string `json:"bucket"`
-	Endpoint      string `json:"endpoint"`
-	PublicBaseURL string `json:"publicBaseUrl"`
+	AccountID       string `json:"accountId"`
+	Bucket          string `json:"bucket"`
+	Endpoint        string `json:"endpoint"`
+	BrowserEndpoint string `json:"browserEndpoint"`
+	PublicBaseURL   string `json:"publicBaseUrl"`
 }
 
 type metaSettings struct {
@@ -194,10 +195,10 @@ func bundleConfiguration(kind string, settings map[string]any, secrets map[strin
 		bundle.Seedance = config.SeedanceConfig{APIKey: strings.TrimSpace(secrets["apiKey"]), BaseURL: strings.TrimRight(value.BaseURL, "/"), Model: strings.TrimSpace(value.Model), APIVersion: strings.TrimSpace(value.APIVersion), Resolution: value.Resolution, AspectRatio: value.AspectRatio, WebhookSecret: strings.TrimSpace(secrets["webhookSecret"]), CallbackURL: strings.TrimSpace(value.CallbackURL), Timeout: time.Duration(value.TimeoutSeconds) * time.Second, PollInterval: time.Duration(value.PollIntervalSeconds) * time.Second, TaskTimeout: time.Duration(value.TaskTimeoutSeconds) * time.Second, USDPerSecond: value.USDPerSecond}
 	case R2:
 		var value r2Settings
-		if err := decodeMap(settings, &value); err != nil || invalidHTTPURL(value.Endpoint, false) || (value.PublicBaseURL != "" && invalidHTTPURL(value.PublicBaseURL, false)) || strings.TrimSpace(value.Bucket) == "" {
+		if err := decodeMap(settings, &value); err != nil || invalidHTTPURL(value.Endpoint, false) || (value.BrowserEndpoint != "" && invalidHTTPURL(value.BrowserEndpoint, false)) || (value.PublicBaseURL != "" && invalidHTTPURL(value.PublicBaseURL, false)) || strings.TrimSpace(value.Bucket) == "" {
 			return ErrInvalid
 		}
-		bundle.R2 = config.R2Config{AccountID: strings.TrimSpace(value.AccountID), AccessKeyID: strings.TrimSpace(secrets["accessKeyId"]), SecretAccessKey: strings.TrimSpace(secrets["secretAccessKey"]), Bucket: strings.TrimSpace(value.Bucket), Endpoint: strings.TrimRight(value.Endpoint, "/"), PublicBaseURL: strings.TrimRight(value.PublicBaseURL, "/")}
+		bundle.R2 = config.R2Config{AccountID: strings.TrimSpace(value.AccountID), AccessKeyID: strings.TrimSpace(secrets["accessKeyId"]), SecretAccessKey: strings.TrimSpace(secrets["secretAccessKey"]), Bucket: strings.TrimSpace(value.Bucket), Endpoint: strings.TrimRight(value.Endpoint, "/"), BrowserEndpoint: strings.TrimRight(value.BrowserEndpoint, "/"), PublicBaseURL: strings.TrimRight(value.PublicBaseURL, "/")}
 	case Meta:
 		var value metaSettings
 		if err := decodeMap(settings, &value); err != nil || invalidHTTPURL(value.GraphBaseURL, true) || invalidHTTPURL(value.DialogBaseURL, true) || invalidHTTPURL(value.RedirectURL, false) || strings.TrimSpace(value.AppID) == "" || strings.TrimSpace(value.APIVersion) == "" {

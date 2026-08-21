@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -116,9 +117,11 @@ func (s *Service) Start(ctx context.Context, clientID, workspaceID, campaignID, 
 	} else if err != nil {
 		return RenderJob{}, err
 	}
-	var sceneCount, selectedCount, totalDuration, campaignDuration int
+	var sceneCount, selectedCount, totalDuration, campaignDuration, brandVersion int
 	var selectedHash string
-	err = tx.QueryRow(ctx, `SELECT count(s.id),count(g.id),COALESCE(sum(sv.duration_seconds),0),cv.duration_seconds,COALESCE(string_agg(g.id::text||':'||g.version::text||':'||COALESCE(g.output_asset_id::text,'')||':'||e.version::text,'|' ORDER BY s.scene_order),'') FROM campaigns c JOIN campaign_versions cv ON cv.campaign_id=c.id AND cv.version=c.current_version LEFT JOIN scenes s ON s.campaign_id=c.id LEFT JOIN scene_versions sv ON sv.scene_id=s.id AND sv.version=s.current_version LEFT JOIN scene_generation_tasks g ON g.id=s.selected_generation_task_id AND g.status='APPROVED' AND g.scene_version=s.current_version LEFT JOIN scene_generation_edits e ON e.generation_task_id=g.id WHERE c.id=$1 AND c.client_id=$2 AND c.workspace_id=$3 GROUP BY cv.duration_seconds`, campaignID, clientID, workspaceID).Scan(&sceneCount, &selectedCount, &totalDuration, &campaignDuration, &selectedHash)
+	var brandID uuid.UUID
+	var logoIDs []uuid.UUID
+	err = tx.QueryRow(ctx, `SELECT count(s.id),count(g.id),COALESCE(sum(sv.duration_seconds),0),cv.duration_seconds,COALESCE(string_agg(g.id::text||':'||g.version::text||':'||COALESCE(g.output_asset_id::text,'')||':'||e.version::text,'|' ORDER BY s.scene_order),''),c.brand_id,bv.version,bv.logo_asset_ids FROM campaigns c JOIN campaign_versions cv ON cv.campaign_id=c.id AND cv.version=c.current_version JOIN brands b ON b.id=c.brand_id AND b.client_id=c.client_id AND b.workspace_id=c.workspace_id JOIN brand_versions bv ON bv.brand_id=b.id AND bv.version=b.current_version LEFT JOIN scenes s ON s.campaign_id=c.id LEFT JOIN scene_versions sv ON sv.scene_id=s.id AND sv.version=s.current_version LEFT JOIN scene_generation_tasks g ON g.id=s.selected_generation_task_id AND g.status='APPROVED' AND g.scene_version=s.current_version LEFT JOIN scene_generation_edits e ON e.generation_task_id=g.id WHERE c.id=$1 AND c.client_id=$2 AND c.workspace_id=$3 GROUP BY cv.duration_seconds,c.brand_id,bv.version,bv.logo_asset_ids`, campaignID, clientID, workspaceID).Scan(&sceneCount, &selectedCount, &totalDuration, &campaignDuration, &selectedHash, &brandID, &brandVersion, &logoIDs)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return RenderJob{}, ErrNotFound
 	}
@@ -128,7 +131,20 @@ func (s *Service) Start(ctx context.Context, clientID, workspaceID, campaignID, 
 	if sceneCount == 0 || sceneCount != selectedCount || totalDuration != campaignDuration {
 		return RenderJob{}, ErrPrerequisite
 	}
-	inputHash := digest(project.ProjectHash + "|" + selectedHash)
+	logoFingerprint := fmt.Sprintf("brand:%d", brandVersion)
+	if len(logoIDs) > 0 {
+		var assetVersion int64
+		var checksum string
+		err = tx.QueryRow(ctx, `SELECT a.version,v.checksum_sha256 FROM media_assets a JOIN media_asset_versions v ON v.media_asset_id=a.id AND v.version=a.current_version WHERE a.id=$1 AND a.client_id=$2 AND a.workspace_id=$3 AND (a.brand_id IS NULL OR a.brand_id=$4) AND a.product_id IS NULL AND a.campaign_id IS NULL AND a.asset_type IN('IMAGE','LOGO') AND a.status='APPROVED' AND (a.expires_at IS NULL OR a.expires_at>now()) AND a.deleted_at IS NULL AND v.mime_type IN('image/jpeg','image/png','image/webp') AND v.verified_at IS NOT NULL AND COALESCE(v.checksum_sha256,'')<>''`, logoIDs[0], clientID, workspaceID, brandID).Scan(&assetVersion, &checksum)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return RenderJob{}, ErrPrerequisite
+		}
+		if err != nil {
+			return RenderJob{}, err
+		}
+		logoFingerprint += fmt.Sprintf("|%s:%d:%s", logoIDs[0], assetVersion, checksum)
+	}
+	inputHash := digest(project.ProjectHash + "|" + selectedHash + "|" + logoFingerprint)
 	keyHash := digest(idempotencyKey + "|" + inputHash)
 	if existing, findErr := getJobByKey(ctx, tx, clientID, workspaceID, campaignID, keyHash); findErr == nil {
 		existing.Reused = true

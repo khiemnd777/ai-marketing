@@ -16,6 +16,7 @@ const asset: Asset = {
   status: "APPROVED",
   usageRights: "Client owned",
   tags: ["hero"],
+  readyForUse: true,
   version: 2,
   createdAt: "2026-08-21T00:00:00Z",
   updatedAt: "2026-08-21T00:00:00Z",

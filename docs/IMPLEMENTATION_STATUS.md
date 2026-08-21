@@ -12,6 +12,7 @@ Milestones 0 through 6 and acceptance hardening gates 1 through 6 are complete f
 - Rebuilt the client portfolio with debounced URL-backed search, status filters, pagination, responsive scan-friendly rows, a dirty-state-protected creation drawer, and explicit lifecycle confirmation.
 - Expanded client detail into a Customer Hub with overview, profile, workspace views, provider visibility for Admin, factual workspace readiness indicators, and canonical links into brand, Product Truth, media, character, campaign, Meta, and analytics workflows.
 - Added Product Media inside Product Truth as a product-scoped view over the existing `media_assets` source of truth. Operators can upload directly with `product_id`, link an unassigned Library asset, or detach an unused asset without deleting it; Media Library gained product filtering and ownership labels.
+- Added Brand Logo management as ordered, immutable references to the same Media Library. Brand pages support logo-only upload, review-aware selection, primary/alternate ordering and signed previews; Media Library shows Brand ownership/usage and can filter by Brand.
 - Loaded each vertical pack's media requirements and exposed product readiness. Product approval now requires an approved, unexpired, upload-verified asset for every minimum category. Scene and generation paths accept only eligible media for the campaign product, recheck eligibility before paid submission, and the Scene Director uses named pickers instead of raw media UUIDs.
 - Preserved legacy scoped routes while adding canonical client/workspace paths; those routing-only changes required no database or OpenAPI change.
 
@@ -56,6 +57,14 @@ Milestones 0 through 6 and acceptance hardening gates 1 through 6 are complete f
 
 ## Validation log
 
+### Brand Logo and Media Library lifecycle — 2026-08-21
+
+- Kept Media Library as the single file/lifecycle source and used the existing ordered `brand_versions.logo_asset_ids`; no schema migration or duplicate upload record was introduced. The first eligible ID is the primary renderer logo and later IDs are approved alternates.
+- Added Brand-scoped PNG/WebP/JPEG uploads forced to `LOGO`/`BRAND_LOGO`, role-aware review and selection, primary-logo ordering, invalid-reference cleanup, unsaved-change protection, Media Library Brand filters and Brand/logo usage badges.
+- Brand persistence now accepts only same-scope, approved, unexpired, verified and checksummed web images that are not product/campaign assets or owned by another Brand. Selected logos cannot be downgraded or soft-deleted, and meaningful mutations invalidate affected final-render approvals.
+- Final-render idempotency now includes the Brand version plus primary-logo asset version/checksum. Render start and manifest construction independently fail closed when a configured primary logo becomes ineligible.
+- Passed OpenAPI generation drift, strict web typecheck/lint, 26 web tests, the complete Go suite, targeted renderer tests, and the PostgreSQL 18 Testcontainers workflow covering eligible selection, in-use deletion protection and render rejection for an ineligible primary logo.
+
 ### Product Media and generation source clarity — 2026-08-21
 
 - Kept Media Library as the single asset repository and implemented Product Media as contextual association through the existing `media_assets.product_id`; no schema migration or duplicate upload record was introduced.
@@ -77,6 +86,12 @@ Milestones 0 through 6 and acceptance hardening gates 1 through 6 are complete f
 - Replaced process-environment provider settings with PostgreSQL profiles keyed by `client_id`, Admin-only Database UI editing, optimistic versions, safe audit metadata, and AES-256-GCM credential storage. API and worker call paths now resolve OpenAI, Seedance, R2, Meta, and renderer settings from the owning client immediately before use.
 - Added the ninth Atlas migration, sqlc queries/generated models, OpenAPI routes and client generation, per-client demo/live controls, secret-presence-only responses, explicit secret clearing, and a tenant-scoped live-readiness gate. The isolated renderer receives the selected client's R2 configuration only in its HMAC-signed internal request; provider environment fallbacks were removed.
 - Passed Atlas validation, OpenAPI drift check, the full `make verify` gate, 14/14 web tests, all Go tests, renderer tests, certification mock tests, and a PostgreSQL 18 Testcontainers regression proving encrypted storage plus isolation between two clients. Rebuilt the local stack, applied the migration, confirmed every service healthy, and visually verified the no-client state and selected-client five-provider form in Microsoft Edge without entering or changing credentials.
+
+### Local client storage bootstrap — 2026-08-21
+
+- Added a development-only `make configure-local-storage CLIENT_ID=<client-uuid>` helper for clients created after the local stack starts. It refuses production and non-local R2 profiles, safely refreshes an existing `local-minio` profile, then persists the private MinIO settings through the existing encrypted, audited, client-scoped provider service instead of restoring an environment fallback.
+- Local object storage now has separate internal and browser endpoints. API, worker, and renderer use Docker DNS (`http://minio:9000`) for server-side multipart, `HEAD`, `GET`, and `PUT` operations; only presigning uses the browser-reachable loopback endpoint (`http://localhost:9100`). This fixes the completion failure where a browser PUT succeeded but the API could not verify the object through a loopback-only host port. MinIO remains bound to IPv4/IPv6 loopback, and the web CSP allowlist covers only the browser endpoint. Corrected the Go JSON field names for presigned requests to match the OpenAPI `url`/`method`/`headers`/`expiresAt` contract and made the uploader tolerate a missing legacy header map.
+- Hardened the post-upload lifecycle uncovered by the real storage probe: empty S3 user metadata is persisted as `{}` instead of JSON `null`; still images no longer seek past their only frame when rendering thumbnails; and the metadata worker computes SHA-256 while streaming the original object to disk, then persists the digest required by `readyForUse`. A real 1,993,523-byte PNG completed as `VERIFIED`, produced a 31 KiB JPEG thumbnail, recorded 1536×1024 dimensions and a SHA-256 digest, and reached `readyForUse=true`.
 
 ### Local lifecycle and first-Admin bootstrap — 2026-08-20
 

@@ -1,13 +1,36 @@
 package jobs
 
-import "testing"
+import (
+	"bytes"
+	"slices"
+	"testing"
+)
 
-func TestParseProbe(t *testing.T) {
-	probe, err := parseProbe([]byte(`{"streams":[{"codec_type":"video","codec_name":"h264","width":1080,"height":1920}],"format":{"duration":"12.345","bit_rate":"2400000"}}`))
+func TestCopyAndChecksum(t *testing.T) {
+	t.Parallel()
+	var destination bytes.Buffer
+	checksum, err := copyAndChecksum(&destination, bytes.NewBufferString("studio-media"))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("copyAndChecksum() error = %v", err)
 	}
-	if probe.Width == nil || *probe.Width != 1080 || probe.Height == nil || *probe.Height != 1920 || probe.DurationMS == nil || *probe.DurationMS != 12345 || probe.BitrateBPS == nil || *probe.BitrateBPS != 2400000 || probe.Codec != "h264" {
-		t.Fatalf("unexpected probe: %+v", probe)
+	if destination.String() != "studio-media" {
+		t.Fatalf("copied value = %q", destination.String())
+	}
+	if checksum != "6ddbbff30267ae7d2abbcf34e64c0a0e8bcad0152827625191e46d0bb20fae03" {
+		t.Fatalf("checksum = %q", checksum)
+	}
+}
+
+func TestThumbnailArgsOnlySeekForVideo(t *testing.T) {
+	t.Parallel()
+	imageArgs := thumbnailArgs("input.png", "output.jpg", false)
+	if slices.Contains(imageArgs, "-ss") {
+		t.Fatalf("image thumbnail args unexpectedly seek: %v", imageArgs)
+	}
+	videoArgs := thumbnailArgs("input.mp4", "output.jpg", true)
+	seek := slices.Index(videoArgs, "-ss")
+	input := slices.Index(videoArgs, "-i")
+	if seek < 0 || input < 0 || seek > input {
+		t.Fatalf("video thumbnail args must seek before input: %v", videoArgs)
 	}
 }

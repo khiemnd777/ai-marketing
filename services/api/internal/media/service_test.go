@@ -1,6 +1,23 @@
 package media
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
+
+func TestUploadMetadataJSONAlwaysProducesObject(t *testing.T) {
+	t.Parallel()
+	for _, metadata := range []map[string]string{nil, {}, {"source": "upload"}} {
+		encoded := uploadMetadataJSON(metadata)
+		var decoded any
+		if err := json.Unmarshal(encoded, &decoded); err != nil {
+			t.Fatalf("json.Unmarshal(%s) error = %v", encoded, err)
+		}
+		if _, ok := decoded.(map[string]any); !ok {
+			t.Fatalf("uploadMetadataJSON(%#v) = %s, want JSON object", metadata, encoded)
+		}
+	}
+}
 
 func TestValidateUpload(t *testing.T) {
 	valid := UploadInput{AssetType: "VIDEO", Name: "Wheel demo", Filename: "wheel.mp4", MimeType: "video/mp4", SizeBytes: 20 << 20, UsageRights: "Owned by client", Tags: []string{"wheel-demo"}}

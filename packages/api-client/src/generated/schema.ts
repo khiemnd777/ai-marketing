@@ -3205,6 +3205,8 @@ export interface components {
             width?: number | null;
             height?: number | null;
             durationMs?: number | null;
+            /** @description Current upload version is verified and has a SHA-256 checksum. */
+            readyForUse: boolean;
             version: number;
             /** Format: date-time */
             expiresAt?: string | null;

@@ -221,7 +221,7 @@ func out(c fiber.Ctx, e error) error {
 	case errors.Is(e, ErrAssigned):
 		return problem.Write(c, 409, "media-product-conflict", "Media đã thuộc sản phẩm khác", "Gỡ media khỏi sản phẩm hiện tại trước khi gắn lại.")
 	case errors.Is(e, ErrInUse):
-		return problem.Write(c, 409, "media-in-use", "Media đang được sử dụng", "Gỡ asset khỏi fact, claim, scene hoặc edit video trước khi tách hay xóa.")
+		return problem.Write(c, 409, "media-in-use", "Media đang được sử dụng", "Gỡ asset khỏi Brand logo, fact, claim, scene hoặc edit video trước khi hạ trạng thái, tách hay xóa.")
 	default:
 		return problem.Write(c, 500, "internal", "Không thể xử lý media", "Hệ thống chưa thể hoàn tất thao tác.")
 	}

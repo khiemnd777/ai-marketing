@@ -30,6 +30,7 @@ import (
 	studioai "github.com/internal/ai-product-marketing-studio/services/api/internal/ai"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/analytics"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/auth"
+	"github.com/internal/ai-product-marketing-studio/services/api/internal/brands"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/campaigns"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/characters"
 	"github.com/internal/ai-product-marketing-studio/services/api/internal/gen/db"
@@ -314,8 +315,43 @@ func TestDemoPlanningWorkflowIntegration(t *testing.T) {
 		t.Fatalf("video orchestration invariants tasks=%d submit_jobs=%d download_jobs=%d", videoTasks, submitJobs, downloadJobs)
 	}
 
+	logoAssetID := uuid.New()
+	if _, err = pool.Exec(ctx, `INSERT INTO media_assets(id,client_id,workspace_id,brand_id,asset_type,category,name,status,usage_rights,created_by,updated_by)VALUES($1,$2,$3,$4,'LOGO','BRAND_LOGO','Northstar primary logo','APPROVED','Integration fixture',$5,$5)`, logoAssetID, clientID, workspaceID, brandID, actorID); err != nil {
+		t.Fatalf("seed brand logo: %v", err)
+	}
+	if _, err = pool.Exec(ctx, `INSERT INTO media_asset_versions(media_asset_id,client_id,workspace_id,version,storage_key,original_filename,mime_type,file_extension,file_size_bytes,checksum_sha256,width,height,verified_at,created_by)VALUES($1,$2,$3,1,$4,'northstar-logo.png','image/png','.png',1024,$5,800,400,now(),$6)`, logoAssetID, clientID, workspaceID, "integration/"+logoAssetID.String()+"/logo.png", strings.Repeat("f", 64), actorID); err != nil {
+		t.Fatalf("seed brand logo version: %v", err)
+	}
+	brandService := brands.NewService(pool)
+	brandProfile, err := brandService.Get(ctx, clientID, workspaceID, brandID)
+	if err != nil {
+		t.Fatalf("load brand before logo selection: %v", err)
+	}
+	brandProfile, err = brandService.Update(ctx, clientID, workspaceID, brandID, actorID, brands.Input{Name: brandProfile.Name, LogoAssetIDs: []uuid.UUID{logoAssetID}, PrimaryLanguage: brandProfile.PrimaryLanguage, Version: brandProfile.Version, ChangeSummary: "Select integration logo"})
+	if err != nil || len(brandProfile.LogoAssetIDs) != 1 || brandProfile.LogoAssetIDs[0] != logoAssetID {
+		t.Fatalf("select eligible brand logo: brand=%#v err=%v", brandProfile, err)
+	}
+	logoAsset, err := mediaService.Get(ctx, clientID, workspaceID, logoAssetID)
+	if err != nil || !logoAsset.ReadyForUse {
+		t.Fatalf("load ready brand logo: asset=%#v err=%v", logoAsset, err)
+	}
+	if deleteErr := mediaService.SoftDelete(ctx, clientID, workspaceID, logoAssetID, actorID, logoAsset.Version); !errors.Is(deleteErr, media.ErrInUse) {
+		t.Fatalf("expected selected brand logo deletion to fail, got %v", deleteErr)
+	}
+	if _, attachErr := mediaService.AttachProduct(ctx, clientID, workspaceID, productID, logoAssetID, actorID, logoAsset.Version); !errors.Is(attachErr, media.ErrInUse) {
+		t.Fatalf("expected selected brand logo product attachment to fail, got %v", attachErr)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE media_assets SET status='DRAFT' WHERE id=$1`, logoAssetID); err != nil {
+		t.Fatalf("make logo ineligible for render precondition: %v", err)
+	}
 	renderService := rendering.NewService(pool, jobEnqueuer)
 	renderKey := "integration-render-" + uuid.NewString()
+	if _, startErr := renderService.Start(ctx, clientID, workspaceID, campaign.ID, actorID, renderKey); !errors.Is(startErr, rendering.ErrPrerequisite) {
+		t.Fatalf("expected render with ineligible primary logo to fail, got %v", startErr)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE media_assets SET status='APPROVED' WHERE id=$1`, logoAssetID); err != nil {
+		t.Fatalf("restore eligible logo: %v", err)
+	}
 	renderJob, err := renderService.Start(ctx, clientID, workspaceID, campaign.ID, actorID, renderKey)
 	if err != nil || renderJob.Status != "QUEUED" {
 		t.Fatalf("start final render: render=%#v err=%v", renderJob, err)
@@ -602,6 +638,7 @@ func seedPlanningFixture(t *testing.T, ctx context.Context, pool *pgxpool.Pool) 
 		{`INSERT INTO clients(id,company_name,created_by,updated_by) VALUES($1,$2,$3,$3)`, []any{clientID, "M2 Client " + uuid.NewString()[:8], actorID}},
 		{`INSERT INTO workspaces(id,client_id,name,slug,created_by,updated_by) VALUES($1,$2,'M2 Workspace',$3,$4,$4)`, []any{workspaceID, clientID, "m2-" + uuid.NewString()[:8], actorID}},
 		{`INSERT INTO brands(id,client_id,workspace_id,name,created_by,updated_by) VALUES($1,$2,$3,'Northstar',$4,$4)`, []any{brandID, clientID, workspaceID, actorID}},
+		{`INSERT INTO brand_versions(brand_id,client_id,workspace_id,version,primary_language,created_by) VALUES($1,$2,$3,1,'vi',$4)`, []any{brandID, clientID, workspaceID, actorID}},
 		{`INSERT INTO products(id,client_id,workspace_id,brand_id,name,sku,category,vertical_key,status,created_by,updated_by) VALUES($1,$2,$3,$4,'Northstar Cabin 20',$5,'Travel luggage','travel-luggage','APPROVED',$6,$6)`, []any{productID, clientID, workspaceID, brandID, "SKU-" + uuid.NewString()[:8], actorID}},
 		{`INSERT INTO product_facts(id,product_id,client_id,workspace_id,fact_key,label,exact_value,source_name,status,locked_value,approved_by,approved_at,created_by,updated_by) VALUES($1,$2,$3,$4,'external_dimensions','Kích thước','55 x 36 x 23 cm','Integration fixture','APPROVED',true,$5,now(),$5,$5)`, []any{factID, productID, clientID, workspaceID, actorID}},
 	}

@@ -71,7 +71,8 @@ const definitions: Record<ProviderKind, ProviderDefinition> = {
     fields: [
       { name: "accountId", label: "Account ID" },
       { name: "bucket", label: "Bucket", required: true },
-      { name: "endpoint", label: "Endpoint", type: "url", required: true },
+      { name: "endpoint", label: "Endpoint nội bộ", type: "url", required: true, help: "API, worker và renderer dùng endpoint này." },
+      { name: "browserEndpoint", label: "Endpoint trình duyệt", type: "url", help: "Không bắt buộc. Dùng để tạo presigned URL khi endpoint nội bộ không truy cập được từ trình duyệt." },
       { name: "publicBaseUrl", label: "Public base URL", type: "url", help: "Không bắt buộc; media vẫn mặc định private." },
     ],
     secrets: [{ name: "accessKeyId", label: "Access key ID" }, { name: "secretAccessKey", label: "Secret access key" }],

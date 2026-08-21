@@ -65,6 +65,7 @@ type R2Config struct {
 	SecretAccessKey string
 	Bucket          string
 	Endpoint        string
+	BrowserEndpoint string
 	PublicBaseURL   string
 }
 

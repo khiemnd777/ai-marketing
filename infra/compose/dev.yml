@@ -54,6 +54,13 @@ services:
     environment:
       <<: *app-env
       HTTP_ADDRESS: :8080
+      # Used only by /app/configure-local-storage; runtime storage still resolves
+      # the encrypted, client-scoped provider profile from PostgreSQL.
+      LOCAL_STORAGE_ENDPOINT: http://minio:9000
+      LOCAL_STORAGE_BROWSER_ENDPOINT: http://localhost:${STUDIO_MINIO_PORT:-9100}
+      LOCAL_STORAGE_BUCKET: studio-media
+      LOCAL_STORAGE_ACCESS_KEY_ID: studio
+      LOCAL_STORAGE_SECRET_ACCESS_KEY: studio-local-secret
     ports: ["127.0.0.1:${STUDIO_API_PORT:-8180}:8080"]
     depends_on:
       river-migrate:
@@ -103,6 +110,7 @@ services:
       dockerfile: infra/docker/web.Dockerfile
     environment:
       API_URL: http://api:8080
+      BROWSER_STORAGE_ORIGINS: http://localhost:${STUDIO_MINIO_PORT:-9100}
     ports: ["127.0.0.1:${STUDIO_WEB_PORT:-3300}:3000"]
     depends_on: [api, renderer]
 
@@ -126,6 +134,7 @@ services:
       MINIO_ROOT_PASSWORD: studio-local-secret
     ports:
       - "127.0.0.1:${STUDIO_MINIO_PORT:-9100}:9000"
+      - "[::1]:${STUDIO_MINIO_PORT:-9100}:9000"
       - "127.0.0.1:${STUDIO_MINIO_CONSOLE_PORT:-9101}:9001"
     volumes:
       - minio-data:/data

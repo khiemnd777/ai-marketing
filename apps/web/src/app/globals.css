@@ -1,5 +1,3 @@
-@import "@uppy/core/css/style.min.css";
-@import "@uppy/dashboard/css/style.min.css";
 @import "tailwindcss";
 
 :root {
@@ -58,11 +56,3 @@ button, input, select, textarea { font: inherit; }
     transition-duration: 0.01ms !important;
   }
 }
-
-.uppy-Dashboard-inner {
-  border: 0;
-  border-radius: 0;
-  background: var(--panel);
-}
-.uppy-Dashboard-AddFiles-title { color: var(--ink); }
-.uppy-Dashboard-browse { color: var(--moss); }

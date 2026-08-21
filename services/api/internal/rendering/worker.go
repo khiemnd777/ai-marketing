@@ -179,10 +179,11 @@ func (w *Worker) buildManifest(ctx context.Context, renderID uuid.UUID, data man
 		manifest.Music = &reference
 	}
 	if len(data.LogoIDs) > 0 {
-		reference, refErr := w.reference(ctx, data.ClientID, data.WorkspaceID, data.LogoIDs[0])
-		if refErr == nil {
-			manifest.Logo = &reference
+		reference, refErr := w.brandLogoReference(ctx, data.ClientID, data.WorkspaceID, data.BrandID, data.LogoIDs[0])
+		if refErr != nil {
+			return manifest, refErr
 		}
+		manifest.Logo = &reference
 	}
 	end := data.Duration * 30
 	manifest.Overlays = append(manifest.Overlays, Overlay{Type: "headline", Value: data.Headline, StartFrame: 0, EndFrame: min32(end, 150), SafeZone: "title"})
@@ -242,6 +243,23 @@ func (w *Worker) reference(ctx context.Context, clientID, workspaceID, assetID u
 	}
 	r.SHA256 = *checksum
 	return r, nil
+}
+
+func (w *Worker) brandLogoReference(ctx context.Context, clientID, workspaceID, brandID, assetID uuid.UUID) (ObjectReference, error) {
+	var reference ObjectReference
+	err := w.Pool.QueryRow(ctx, `SELECT v.storage_key,v.mime_type,v.checksum_sha256
+		FROM media_assets a
+		JOIN media_asset_versions v ON v.media_asset_id=a.id AND v.version=a.current_version
+		WHERE a.id=$1 AND a.client_id=$2 AND a.workspace_id=$3
+		AND (a.brand_id IS NULL OR a.brand_id=$4) AND a.product_id IS NULL AND a.campaign_id IS NULL
+		AND a.asset_type IN('IMAGE','LOGO') AND a.status='APPROVED'
+		AND (a.expires_at IS NULL OR a.expires_at>now()) AND a.deleted_at IS NULL
+		AND v.mime_type IN('image/jpeg','image/png','image/webp')
+		AND v.verified_at IS NOT NULL AND COALESCE(v.checksum_sha256,'')<>''`, assetID, clientID, workspaceID, brandID).Scan(&reference.ObjectKey, &reference.ContentType, &reference.SHA256)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return reference, ErrPrerequisite
+	}
+	return reference, err
 }
 func (w *Worker) references(ctx context.Context, clientID, workspaceID uuid.UUID, ids []uuid.UUID) ([]ObjectReference, error) {
 	sort.Slice(ids, func(i, j int) bool { return ids[i].String() < ids[j].String() })
