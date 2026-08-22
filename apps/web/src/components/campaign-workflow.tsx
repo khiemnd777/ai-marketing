@@ -2,7 +2,7 @@
 
 import type { components } from "@studio/api-client";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Check, CircleDollarSign, RefreshCw } from "lucide-react";
+import { Bot, Check, CircleDollarSign, RefreshCw, Send } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, type ReactNode } from "react";
 import { usePermissions } from "@/components/auth-context";
@@ -22,17 +22,22 @@ export function useCampaignRoute() {
 
 type CampaignProgressStepKey = components["schemas"]["CampaignProgressStep"]["key"];
 
-const tabs = [
+const workflowTabs = [
   { key: "BRIEF", suffix: "", label: "Brief" },
   { key: "CONCEPT", suffix: "/concepts", label: "Concept" },
   { key: "CONTENT", suffix: "/content", label: "Nội dung" },
   { key: "SCRIPT", suffix: "/script", label: "Kịch bản" },
   { key: "SCENES", suffix: "/scenes", label: "Cảnh quay" },
-  { key: "QUALITY", suffix: "/quality", label: "Quality" },
-  { key: "COMPOSER", suffix: "/composer", label: "Composer" },
+  { key: "QUALITY", suffix: "/quality", label: "Duyệt take" },
+  { key: "COMPOSER", suffix: "/composer", label: "Dựng & duyệt final" },
+] as const;
+
+const distributionTabs = [
   { key: "PUBLISHING", suffix: "/publishing", label: "Xuất bản" },
   { key: "ADS", suffix: "/ads", label: "Meta Ads" },
 ] as const;
+
+const tabs = [...workflowTabs, ...distributionTabs] as const;
 
 export function campaignProgressQueryKey({ campaignId, clientId, workspaceId }: { campaignId: string; clientId: string; workspaceId: string }) {
   return ["campaign-progress", clientId, workspaceId, campaignId] as const;
@@ -47,12 +52,11 @@ export function CampaignTabs({ campaignId, clientId, workspaceId, active, comple
   }, [active]);
 
   return <nav className="mb-7 overflow-x-auto pb-2" aria-label="Tiến trình campaign">
-    <ol className="flex min-w-[54rem] items-start px-0.5">
-      {tabs.map(({ key, suffix, label }, index) => {
+    <ol className="flex min-w-[68rem] items-center px-0.5">
+      {workflowTabs.map(({ key, suffix, label }, index) => {
         const isCurrent = index === activeIndex;
         const isPast = activeIndex >= 0 && index < activeIndex;
         const isCompleted = completedSteps.has(key);
-        const isOptional = key === "ADS";
 
         return <li key={suffix} className="relative min-w-0 flex-1">
           <Link
@@ -65,7 +69,6 @@ export function CampaignTabs({ campaignId, clientId, workspaceId, active, comple
               isCurrent && "bg-white text-[var(--ink)] ring-1 ring-[var(--line)]",
               !isCurrent && isCompleted && "text-[var(--moss)] hover:bg-[#edf0e7]",
               !isCurrent && !isCompleted && "text-[var(--muted)] hover:bg-white hover:text-[var(--ink)]",
-              isOptional && !isCurrent && "ring-1 ring-dashed ring-[var(--line)]",
             )}
           >
             <span className={cn(
@@ -77,14 +80,54 @@ export function CampaignTabs({ campaignId, clientId, workspaceId, active, comple
               {isCompleted ? <Check className="size-4 stroke-[2.5]" /> : index + 1}
             </span>
             <span className="whitespace-nowrap">{label}</span>
-            {isOptional ? <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide", isCurrent ? "bg-[var(--ink)]/10 text-[var(--ink)]" : "bg-[#edf0e7] text-[var(--muted)]")}>Tùy chọn</span> : null}
             {isCompleted ? <span className="sr-only">Đã hoàn tất</span> : null}
             {isPast ? <span className="sr-only">Bước trước</span> : null}
             {isCurrent ? <span className="sr-only">Bước hiện tại</span> : null}
           </Link>
-          {index < tabs.length - 1 ? <span aria-hidden="true" className={cn("absolute left-[calc(50%+1rem)] top-[1.3rem] h-0.5 w-[calc(100%-2rem)] rounded-full", isCompleted ? "bg-[var(--moss)]" : "bg-[var(--line)]")} /> : null}
+          <span aria-hidden="true" className={cn("absolute left-[calc(50%+1rem)] top-[1.3rem] h-0.5 w-[calc(100%-2rem)] rounded-full", isCompleted ? "bg-[var(--moss)]" : "bg-[var(--line)]")} />
         </li>;
       })}
+      <li className="relative w-[18rem] shrink-0 pl-3">
+        <div className="rounded-2xl border border-[var(--line)] bg-white/55 p-2">
+          <span className="mb-1.5 block text-center text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted)]">Bước 8 · Phân phối</span>
+          <div className="grid grid-cols-2 gap-2" role="group" aria-label="Kênh phân phối">
+            {distributionTabs.map(({ key, suffix, label }) => {
+              const isCurrent = suffix === active;
+              const isCompleted = completedSteps.has(key);
+              const isOptional = key === "ADS";
+              const Icon = key === "PUBLISHING" ? Send : CircleDollarSign;
+
+              return <Link
+                key={suffix}
+                ref={isCurrent ? currentStepRef : undefined}
+                href={studioRoutes.campaign(clientId, workspaceId, campaignId, suffix)}
+                aria-current={isCurrent ? "step" : undefined}
+                data-completed={isCompleted ? "true" : "false"}
+                className={cn(
+                  "group flex min-h-[4.75rem] flex-col items-center gap-1 rounded-xl px-2 py-1.5 text-center text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ink)] focus-visible:ring-offset-2",
+                  isCurrent && "bg-white text-[var(--ink)] ring-1 ring-[var(--line)]",
+                  !isCurrent && isCompleted && "text-[var(--moss)] hover:bg-[#edf0e7]",
+                  !isCurrent && !isCompleted && "text-[var(--muted)] hover:bg-white hover:text-[var(--ink)]",
+                  isOptional && !isCurrent && "ring-1 ring-dashed ring-[var(--line)]",
+                )}
+              >
+                <span className={cn(
+                  "grid size-8 shrink-0 place-items-center rounded-full border",
+                  isCompleted && "border-[var(--moss)] bg-[var(--moss)] text-white",
+                  isCurrent && !isCompleted && "border-[var(--ink)] bg-[var(--lime)] text-[var(--ink)]",
+                  !isCurrent && !isCompleted && "border-[var(--line)] bg-white text-[var(--muted)] group-hover:border-[var(--muted)]",
+                )} aria-hidden="true">
+                  {isCompleted ? <Check className="size-4 stroke-[2.5]" /> : <Icon className="size-4" />}
+                </span>
+                <span className="whitespace-nowrap">{label}</span>
+                {isOptional ? <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide", isCurrent ? "bg-[var(--ink)]/10 text-[var(--ink)]" : "bg-[#edf0e7] text-[var(--muted)]")}>Tùy chọn</span> : null}
+                {isCompleted ? <span className="sr-only">Đã hoàn tất</span> : null}
+                {isCurrent ? <span className="sr-only">Bước hiện tại</span> : null}
+              </Link>;
+            })}
+          </div>
+        </div>
+      </li>
     </ol>
   </nav>;
 }

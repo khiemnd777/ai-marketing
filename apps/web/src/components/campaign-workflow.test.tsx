@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { CampaignTabs } from "./campaign-workflow";
 
@@ -15,7 +15,7 @@ describe("CampaignTabs", () => {
     render(<CampaignTabs {...scope} active="/concepts" />);
 
     expect(screen.getByRole("navigation", { name: "Tiến trình campaign" })).toBeInTheDocument();
-    expect(screen.getAllByRole("listitem")).toHaveLength(9);
+    expect(screen.getAllByRole("listitem")).toHaveLength(8);
     expect(screen.getByRole("link", { name: /Concept/ })).toHaveAttribute("aria-current", "step");
     expect(screen.getByRole("link", { name: /Brief/ })).toHaveAccessibleName("Brief Bước trước");
     expect(screen.getByRole("link", { name: /Brief/ })).toHaveAttribute("data-completed", "false");
@@ -30,12 +30,19 @@ describe("CampaignTabs", () => {
     expect(screen.getByRole("link", { name: /Nội dung/ })).toHaveAttribute("data-completed", "false");
     expect(screen.getByRole("link", { name: /Kịch bản/ })).toHaveAttribute("data-completed", "false");
     expect(screen.getByRole("link", { name: /Cảnh quay/ })).toHaveAttribute("data-completed", "false");
+    expect(screen.getByRole("link", { name: /Duyệt take/ })).toHaveAttribute("data-completed", "false");
+    expect(screen.getByRole("link", { name: /Dựng & duyệt final/ })).toHaveAttribute("data-completed", "false");
   });
 
-  it("marks Meta Ads as optional while keeping it navigable", () => {
+  it("presents publishing and optional Ads as sibling distribution channels", () => {
     render(<CampaignTabs {...scope} active="/publishing" />);
 
-    const adsStep = screen.getByRole("link", { name: "Meta Ads Tùy chọn" });
+    const distribution = screen.getByRole("group", { name: "Kênh phân phối" });
+    const publishingStep = within(distribution).getByRole("link", { name: /Xuất bản/ });
+    const adsStep = within(distribution).getByRole("link", { name: /Meta Ads Tùy chọn/ });
+    expect(screen.getByText("Bước 8 · Phân phối")).toBeInTheDocument();
+    expect(publishingStep).toHaveAttribute("aria-current", "step");
+    expect(publishingStep).toHaveAttribute("href", "/clients/client-1/workspaces/workspace-1/campaigns/campaign-1/publishing");
     expect(adsStep).toHaveTextContent("Tùy chọn");
     expect(adsStep).toHaveAttribute("href", "/clients/client-1/workspaces/workspace-1/campaigns/campaign-1/ads");
   });

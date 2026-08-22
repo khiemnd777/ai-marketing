@@ -2,7 +2,7 @@
 
 import type { components } from "@studio/api-client";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Ban, Check, Download, Eye, ShieldCheck, Star } from "lucide-react";
+import { AlertTriangle, Ban, Check, Eye, ShieldCheck, Star } from "lucide-react";
 import { Suspense, useMemo, useState } from "react";
 import { usePermissions } from "@/components/auth-context";
 import { CampaignHeader, useCampaignRoute } from "@/components/campaign-workflow";
@@ -14,7 +14,6 @@ import { qualityNeedsAction } from "@/lib/quality";
 type Scene = components["schemas"]["CampaignScene"];
 type Generation = components["schemas"]["SceneGeneration"];
 type Review = components["schemas"]["SceneGenerationReview"];
-type FinalRender = components["schemas"]["FinalRender"];
 type Scope = ReturnType<typeof useCampaignRoute>;
 type QueueItem = { scene: Scene; generation: Generation };
 type Filter = "ACTION" | "ALL" | "PASSED";
@@ -43,7 +42,7 @@ function QualityWorkspace() {
     enabled: !!scope.clientId && !!scope.workspaceId,
     queryFn: async () => {
       const { data, error } = await api.GET("/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/scenes", { params: { path: scope } });
-      if (error || !data) throw apiError(error, "Không thể tải scenes cho Quality.");
+      if (error || !data) throw apiError(error, "Không thể tải scenes để duyệt take.");
       return data;
     },
   });
@@ -58,37 +57,23 @@ function QualityWorkspace() {
       },
     })),
   });
-  const renders = useQuery({
-    queryKey: ["final-renders", scope.campaignId],
-    enabled: !!scope.clientId && !!scope.workspaceId,
-    queryFn: async () => {
-      const { data, error } = await api.GET("/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/final-renders", { params: { path: scope } });
-      if (error || !data) throw apiError(error, "Không thể tải final render review.");
-      return data;
-    },
-  });
   const queue = useMemo(() => (scenes.data?.items ?? []).flatMap((scene, index) => (generationQueries[index]?.data?.items ?? []).map((generation) => ({ scene, generation }))), [generationQueries, scenes.data?.items]);
   const visible = queue.filter((item) => filter === "ALL" || (filter === "ACTION" ? qualityNeedsAction(item.generation) : item.generation.status === "APPROVED"));
   const actionCount = queue.filter((item) => qualityNeedsAction(item.generation)).length;
   const approvedCount = queue.filter((item) => item.generation.status === "APPROVED").length;
   const selectedCount = queue.filter((item) => item.generation.selected).length;
-  const refresh = async (sceneId?: string) => {
-    if (sceneId) await qc.invalidateQueries({ queryKey: ["scene-generations", scope.campaignId, sceneId] });
-    await qc.invalidateQueries({ queryKey: ["final-renders", scope.campaignId] });
-  };
+  const refresh = async (sceneId: string) => qc.invalidateQueries({ queryKey: ["scene-generations", scope.campaignId, sceneId] });
 
-  return <CampaignHeader active="/quality" title="Quality & Review" description="Một hàng đợi review tập trung cho transcript, deterministic QC, findings thị giác, human checklist và final output. Automated checks hỗ trợ quyết định, không bảo đảm correctness.">
-    {scenes.isLoading ? <SkeletonRows /> : scenes.error ? <StatePanel title="Không thể tải Quality workspace" tone="danger">{scenes.error.message}</StatePanel> : <>
+  return <CampaignHeader active="/quality" title="Duyệt take" description="Kiểm tra transcript, deterministic QC, findings thị giác và human checklist, sau đó chọn đúng một take đã duyệt cho mỗi cảnh trước khi dựng final.">
+    {scenes.isLoading ? <SkeletonRows /> : scenes.error ? <StatePanel title="Không thể tải trang duyệt take" tone="danger">{scenes.error.message}</StatePanel> : <>
       <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="Tổng take" value={queue.length} icon={Eye} />
         <Metric label="Cần xử lý" value={actionCount} icon={AlertTriangle} tone="warn" />
         <Metric label="Đã duyệt" value={approvedCount} icon={ShieldCheck} tone="good" />
         <Metric label="Đã chọn" value={selectedCount} icon={Star} tone={selectedCount === (scenes.data?.items.length ?? 0) && selectedCount > 0 ? "good" : "warn"} />
       </div>
-      <div className="mb-5 flex flex-wrap gap-2" role="group" aria-label="Lọc hàng đợi Quality">{([['ACTION', `Cần xử lý (${actionCount})`], ['ALL', `Tất cả (${queue.length})`], ['PASSED', `Đã duyệt (${approvedCount})`]] as Array<[Filter, string]>).map(([value, label]) => <button key={value} type="button" aria-pressed={filter === value} className={filter === value ? "rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-bold text-white" : "rounded-full bg-white px-4 py-2 text-sm font-bold text-[var(--muted)] ring-1 ring-[var(--line)]"} onClick={() => setFilter(value)}>{label}</button>)}</div>
+      <div className="mb-5 flex flex-wrap gap-2" role="group" aria-label="Lọc hàng đợi duyệt take">{([['ACTION', `Cần xử lý (${actionCount})`], ['ALL', `Tất cả (${queue.length})`], ['PASSED', `Đã duyệt (${approvedCount})`]] as Array<[Filter, string]>).map(([value, label]) => <button key={value} type="button" aria-pressed={filter === value} className={filter === value ? "rounded-full bg-[var(--ink)] px-4 py-2 text-sm font-bold text-white" : "rounded-full bg-white px-4 py-2 text-sm font-bold text-[var(--muted)] ring-1 ring-[var(--line)]"} onClick={() => setFilter(value)}>{label}</button>)}</div>
       {generationQueries.some((query) => query.isLoading) && queue.length === 0 ? <SkeletonRows /> : generationQueries.find((query) => query.error)?.error ? <StatePanel title="Không thể tải một số takes" tone="danger">{generationQueries.find((query) => query.error)?.error?.message}</StatePanel> : visible.length ? <div className="grid gap-5">{visible.map((item) => <QualityCard key={item.generation.id} item={item} scope={scope} refresh={() => refresh(item.scene.id)} />)}</div> : <StatePanel title={filter === "ACTION" ? "Hàng đợi đã sạch" : "Không có take phù hợp"}>{filter === "ACTION" ? "Không còn finding hoặc take chờ review trong campaign này." : "Hãy tạo take trong Scene Director."}</StatePanel>}
-
-      <section className="mt-9"><h2 className="mb-1 font-serif text-2xl font-bold">Final output review</h2><p className="mb-4 text-sm text-[var(--muted)]">Final MP4 vẫn cần review và lựa chọn riêng sau khi renderer hoàn tất.</p>{renders.isLoading ? <SkeletonRows /> : renders.error ? <StatePanel title="Không thể tải final renders" tone="danger">{renders.error.message}</StatePanel> : renders.data?.items.length ? <div className="grid gap-4">{renders.data.items.map((render) => <FinalQualityCard key={render.id} item={render} scope={scope} refresh={() => refresh()} />)}</div> : <StatePanel title="Chưa có final output">Sang Composer sau khi mọi scene có một take được chọn.</StatePanel>}</section>
     </>}
   </CampaignHeader>;
 }
@@ -160,13 +145,4 @@ function AssetVideo({ assetId, scope }: { assetId: string | null | undefined; sc
   if (download.isLoading) return <div className="grid h-full place-items-center text-sm text-white/65">Đang tải preview…</div>;
   if (download.error) return <div className="grid h-full place-items-center p-4 text-center text-xs text-white/70">{download.error.message}</div>;
   return <video className="h-full w-full object-contain" controls playsInline preload="metadata" src={download.data?.url} />;
-}
-
-function FinalQualityCard({ item, scope, refresh }: { item: FinalRender; scope: Scope; refresh: () => Promise<unknown> }) {
-  const { canReview } = usePermissions();
-  const [notes, setNotes] = useState(item.reviewNotes);
-  const review = useMutation({ mutationFn: async (action: "APPROVE" | "REJECT") => { const { data, error } = await api.PUT("/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/final-renders/{renderJobId}/review", { params: { path: { ...scope, renderJobId: item.id } }, body: { action, version: item.version, notes } }); if (error || !data) throw apiError(error, "Không thể review final output."); return data; }, onSuccess: refresh });
-  const select = useMutation({ mutationFn: async () => { const { data, error } = await api.POST("/clients/{clientId}/workspaces/{workspaceId}/campaigns/{campaignId}/final-renders/{renderJobId}/select", { params: { path: { ...scope, renderJobId: item.id } } }); if (error || !data) throw apiError(error, "Không thể chọn final output."); return data; }, onSuccess: refresh });
-  const open = async () => { if (!item.outputAssetId) return; const { data, error } = await api.GET("/clients/{clientId}/workspaces/{workspaceId}/media-assets/{assetId}/download", { params: { path: { clientId: scope.clientId, workspaceId: scope.workspaceId, assetId: item.outputAssetId } } }); if (error || !data) throw apiError(error, "Không thể mở MP4."); window.open(data.url, "_blank", "noopener,noreferrer"); };
-  return <Card className="p-5"><div className="flex flex-wrap items-center gap-2"><Badge tone={item.status === "APPROVED" ? "good" : item.status === "FAILED" || item.status === "REJECTED" ? "danger" : "warn"}>{item.status}</Badge>{item.selected ? <Badge tone="good">Campaign output</Badge> : null}<span className="text-xs text-[var(--muted)]">project v{item.videoProjectVersion}</span><span className="ml-auto font-mono text-xs text-[var(--muted)]">{item.id.slice(0, 8)}</span></div>{item.errorMessage ? <p className="mt-3 text-sm text-[var(--coral)]">{item.errorMessage}</p> : null}{canReview && item.status === "REVIEW_REQUIRED" ? <Field label="Ghi chú final review"><textarea className={`${textareaClass} mt-4`} value={notes} onChange={(event) => setNotes(event.target.value)} /></Field> : null}{(review.error || select.error) ? <p className="mt-3 text-sm text-[var(--coral)]">{review.error?.message ?? select.error?.message}</p> : null}<div className="mt-4 flex flex-wrap gap-2">{item.outputAssetId ? <Button className="bg-white text-[var(--ink)] ring-1 ring-[var(--line)]" onClick={() => void open()}><Download className="mr-2 size-4" />Mở MP4</Button> : null}{canReview && item.status === "REVIEW_REQUIRED" ? <><Button disabled={review.isPending} onClick={() => review.mutate("APPROVE")}><Check className="mr-2 size-4" />Duyệt final</Button><Button className="bg-[var(--coral)]" disabled={review.isPending || !notes.trim()} onClick={() => review.mutate("REJECT")}><Ban className="mr-2 size-4" />Từ chối</Button></> : null}{canReview && item.status === "APPROVED" && !item.selected ? <Button disabled={select.isPending} onClick={() => select.mutate()}><Star className="mr-2 size-4" />Chọn output</Button> : null}</div></Card>;
 }

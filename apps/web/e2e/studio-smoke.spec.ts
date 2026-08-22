@@ -79,8 +79,8 @@ test("login, CSRF mutation, client creation, and workspace creation work through
 
   const missingCampaignId = "00000000-0000-4000-8000-000000000000";
   await page.goto(`/clients/${clientId}/workspaces/${workspaceId}/campaigns/${missingCampaignId}/composer`);
-  await expect(page.getByRole("heading", { name: "Final Composer" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Quality" })).toBeVisible();
-  await page.getByRole("link", { name: "Quality" }).click();
-  await expect(page.getByRole("heading", { name: "Quality & Review" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dựng & duyệt final" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Duyệt take" })).toBeVisible();
+  await page.getByRole("link", { name: "Duyệt take" }).click();
+  await expect(page.getByRole("heading", { name: "Duyệt take" })).toBeVisible();
 });

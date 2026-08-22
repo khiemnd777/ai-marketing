@@ -144,8 +144,8 @@ test("complete no-cost product truth to analytics journey", async ({ page }) => 
   }
   await expect(page.getByText("REVIEW_REQUIRED", { exact: true })).toHaveCount(4, { timeout: 3 * 60_000 });
 
-  await page.getByRole("link", { name: "Quality" }).click();
-  await expect(page.getByRole("heading", { name: "Quality & Review" })).toBeVisible();
+  await page.getByRole("link", { name: "Duyệt take" }).click();
+  await expect(page.getByRole("heading", { name: "Duyệt take" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Duyệt take" })).toHaveCount(4);
   for (let remaining = 4; remaining > 0; remaining -= 1) {
     await clickAndExpect(page, "Duyệt take", /\/generations\/[^/]+\/review$/, "PUT", 200);
@@ -157,14 +157,13 @@ test("complete no-cost product truth to analytics journey", async ({ page }) => 
     await expect(page.getByRole("button", { name: "Chọn cho Composer" })).toHaveCount(remaining - 1);
   }
 
-  await page.getByRole("link", { name: "Composer" }).click();
+  await page.getByRole("link", { name: "Dựng & duyệt final" }).click();
   await expect(page.getByText("4/4 scene sẵn sàng", { exact: true })).toBeVisible();
   await clickAndExpect(page, "Render MP4", /\/final-renders$/, "POST", 202);
   await expect(page.getByText("REVIEW_REQUIRED", { exact: true })).toBeVisible({ timeout: 6 * 60_000 });
 
-  await page.getByRole("link", { name: "Quality" }).click();
   await clickAndExpect(page, "Duyệt final", /\/final-renders\/[^/]+\/review$/, "PUT", 200);
-  await clickAndExpect(page, "Chọn output", /\/final-renders\/[^/]+\/select$/, "POST", 200);
+  await clickAndExpect(page, "Chọn campaign output", /\/final-renders\/[^/]+\/select$/, "POST", 200);
   await expect(page.getByText("Campaign output", { exact: true })).toBeVisible();
 
   await page.goto(`/settings/meta?clientId=${clientId}&workspaceId=${workspaceId}`);
