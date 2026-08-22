@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { canonicalLegacyRoute, legacyScopedHref, studioRoutes, workspaceDestination } from "./studio-routes";
 
 describe("studio routes", () => {
+  it("exposes the internal pricing catalogue outside client and workspace scope", () => {
+    expect(studioRoutes.pricing).toBe("/pricing");
+  });
+
   it("builds hierarchical client and workspace routes", () => {
     expect(studioRoutes.product("client 1", "workspace/2", "product-3")).toBe(
       "/clients/client%201/workspaces/workspace%2F2/products/product-3",

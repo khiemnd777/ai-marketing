@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   BarChart3,
+  BadgeDollarSign,
   BriefcaseBusiness,
   ChevronRight,
   Clapperboard,
@@ -229,6 +230,7 @@ function ShellContent({ user, children }: { user: CurrentUser; children: ReactNo
     { href: studioRoutes.analytics(clientId, workspaceId), label: "Phân tích", icon: BarChart3, aliases: ["/analytics"] },
   ] : [];
   const systemItems: NavItem[] = [
+    { href: studioRoutes.pricing, label: "Bảng giá dịch vụ", icon: BadgeDollarSign, exact: true },
     ...(user.role === "ADMIN" ? [
       { href: "/operations", label: "Vận hành", icon: Activity } satisfies NavItem,
       { href: "/internal-users", label: "Người dùng nội bộ", icon: UserCog } satisfies NavItem,

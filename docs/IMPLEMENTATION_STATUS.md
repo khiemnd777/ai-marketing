@@ -57,6 +57,13 @@ Milestones 0 through 6 and acceptance hardening gates 1 through 6 are complete f
 
 ## Validation log
 
+### Managed-service pricing catalogue — 2026-08-22
+
+- Added an internal `Bảng giá dịch vụ` route with three managed-service scopes: Khởi động at 5.29M VND/month, Tăng trưởng at 12.9M VND/month, and Mở rộng at 24.9M VND/month; each onboarding fee now equals its package's monthly fee. Promotional presentation shows Khởi động increasing from 2 to 4 campaign kits and 4 to 8 approved 30-second videos, while Tăng trưởng increases from 3 to 5 campaign kits and 10 to 15 approved videos. Mở rộng remains at 6 campaign kits and 20 videos. The customer-facing copy calls the paid channel `Quảng cáo Facebook & Instagram` and shows only `Không bao gồm` or `Hỗ trợ thiết lập`; PAUSED-by-default remains an internal safety behavior.
+- Kept the catalogue commercial-only. It does not add customer registration, billing, subscriptions, entitlements, automatic renewals, or automatic overage/spend. Onboarding, add-ons, VAT, Meta media spend, third-party production costs, and human confirmation requirements are explicit.
+- Added package invariant and rendered-page coverage, including ascending price/capacity, one recommended middle tier, supported language/format boundaries, accessible comparison-table semantics, and the absence of self-service purchase controls. No database, OpenAPI, provider, or ADR change was required.
+- Passed all 50 Web tests, strict Web typecheck, ESLint, the Next.js production build, and `git diff --check`. Browser QA passed at 1440×1000 and 390×844: three-to-one-column responsive layout, locally scrollable comparison table without page overflow, active navigation, mobile drawer behavior, updated starter pricing/video scope, and zero console warnings/errors.
+
 ### Campaign progress navigation — 2026-08-21
 
 - Replaced the campaign workflow pill links with one ordered, connected progress stepper spanning Brief, Concept, Content, Script, Scenes, Quality, Composer, Publishing, and optional Meta Ads. The active route uses `aria-current="step"`, Meta Ads remains explicitly optional, and route position no longer implies completion.

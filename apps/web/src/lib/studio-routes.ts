@@ -6,6 +6,7 @@ export type StudioScope = {
 const encode = (value: string) => encodeURIComponent(value);
 
 export const studioRoutes = {
+  pricing: "/pricing",
   clients: "/clients",
   client: (clientId: string) => `/clients/${encode(clientId)}`,
   clientProfile: (clientId: string) => `/clients/${encode(clientId)}/profile`,
