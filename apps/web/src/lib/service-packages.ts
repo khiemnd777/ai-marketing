@@ -6,6 +6,8 @@ export type ServicePackage = {
   audience: string;
   monthlyFeeVnd: number;
   onboardingFeeVnd: number;
+  previousOnboardingFeeVnd?: number;
+  onboardingDiscountLabel?: string;
   recommended: boolean;
   promotionLabel?: string;
   workspaces: number;
@@ -29,7 +31,8 @@ export const servicePackages: readonly ServicePackage[] = [
     name: "Khởi động",
     audience: "Một sản phẩm chủ lực cần hiện diện đều đặn trên Facebook và Instagram.",
     monthlyFeeVnd: 5_290_000,
-    onboardingFeeVnd: 5_290_000,
+    onboardingFeeVnd: 0,
+    previousOnboardingFeeVnd: 2_900_000,
     recommended: false,
     promotionLabel: "Ưu đãi gấp đôi",
     workspaces: 1,
@@ -57,7 +60,9 @@ export const servicePackages: readonly ServicePackage[] = [
     name: "Tăng trưởng",
     audience: "Thương hiệu cần sản xuất nội dung đều đặn và có hỗ trợ quảng cáo Facebook, Instagram.",
     monthlyFeeVnd: 12_900_000,
-    onboardingFeeVnd: 12_900_000,
+    onboardingFeeVnd: 2_950_000,
+    previousOnboardingFeeVnd: 5_900_000,
+    onboardingDiscountLabel: "-50%",
     recommended: true,
     promotionLabel: "Tăng số lượng ưu đãi",
     workspaces: 1,
@@ -85,7 +90,7 @@ export const servicePackages: readonly ServicePackage[] = [
     name: "Mở rộng",
     audience: "Đội marketing có nhiều dòng sản phẩm, cần nhịp sản xuất cao và ưu tiên vận hành.",
     monthlyFeeVnd: 24_900_000,
-    onboardingFeeVnd: 24_900_000,
+    onboardingFeeVnd: 7_900_000,
     recommended: false,
     workspaces: 2,
     activeProducts: 6,
@@ -117,6 +122,7 @@ export const serviceAddOns = [
 
 export const pricingTerms = [
   "Bảng giá chưa bao gồm VAT và được cập nhật theo từng quý.",
+  "Phí khởi tạo chỉ thu một lần để chuẩn hóa thông tin sản phẩm, thương hiệu, tư liệu và quy trình duyệt.",
   "Chi phí công cụ, chiến lược, biên tập, kiểm duyệt và xuất video đã nằm trong phí gói.",
   "Ngân sách quảng cáo Facebook & Instagram, quay ngoại cảnh, người mẫu, bản quyền âm nhạc và nội dung bên thứ ba không nằm trong phí gói.",
   "Không tự động phát sinh thêm chi phí hoặc tăng ngân sách. Mọi khoản bổ sung cần khách hàng xác nhận trước.",

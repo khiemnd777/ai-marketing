@@ -15,13 +15,24 @@ describe("service packages", () => {
 
   it("aligns package promises with the complete Phase 1 formats", () => {
     for (const item of servicePackages) {
-      expect(item.onboardingFeeVnd).toBe(item.monthlyFeeVnd);
+      expect(item.onboardingFeeVnd).toBeLessThan(item.monthlyFeeVnd);
       expect(item.contentVariantsPerMonth).toBe(item.campaignsPerMonth * CONTENT_VARIANTS_PER_CAMPAIGN);
       expect(item.finalVideosPerMonth).toBeGreaterThanOrEqual(item.campaignsPerMonth);
       expect(item.videoDurations.every((duration) => duration === 30 || duration === 45)).toBe(true);
       expect(item.languages.every((language) => language === "vi" || language === "en")).toBe(true);
       expect(item.features.join(" ")).not.toMatch(/TikTok|YouTube|Zalo/i);
     }
+  });
+
+  it("keeps onboarding fees separate from monthly retainers and applies the requested offers", () => {
+    const [starter, growth, scale] = servicePackages;
+
+    expect([starter!.previousOnboardingFeeVnd, starter!.onboardingFeeVnd]).toEqual([2_900_000, 0]);
+    expect([growth!.previousOnboardingFeeVnd, growth!.onboardingFeeVnd]).toEqual([5_900_000, 2_950_000]);
+    expect(growth!.onboardingFeeVnd).toBe(growth!.previousOnboardingFeeVnd! * 0.5);
+    expect(growth!.onboardingDiscountLabel).toBe("-50%");
+    expect(scale!.onboardingFeeVnd).toBe(7_900_000);
+    expect(scale!.previousOnboardingFeeVnd).toBeUndefined();
   });
 
   it("applies the requested promotional quotas without changing the scale package", () => {

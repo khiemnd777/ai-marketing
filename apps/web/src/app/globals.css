@@ -56,3 +56,191 @@ button, input, select, textarea { font: inherit; }
     transition-duration: 0.01ms !important;
   }
 }
+
+@page pricing {
+  size: A4 landscape;
+  margin: 9mm;
+}
+
+@media print {
+  html,
+  body {
+    min-height: auto;
+    background: white !important;
+  }
+
+  body:has([data-pricing-page]) {
+    color: #17211b;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  body:has([data-pricing-page]) .skip-link,
+  body:has([data-pricing-page]) [data-studio-mobile-header],
+  body:has([data-pricing-page]) [data-studio-navigation],
+  [data-pricing-export-control] {
+    display: none !important;
+  }
+
+  body:has([data-pricing-page]) [data-studio-shell] {
+    display: block !important;
+    min-height: auto !important;
+  }
+
+  body:has([data-pricing-page]) [data-studio-main] {
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  body:has([data-pricing-page]) [data-studio-main-inner] {
+    max-width: none !important;
+  }
+
+  [data-pricing-page] {
+    page: pricing;
+    width: 100%;
+    font-size: 9pt;
+  }
+
+  [data-pricing-header] > header {
+    margin-bottom: 4mm !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: end !important;
+  }
+
+  [data-pricing-header] h1 {
+    font-size: 24pt !important;
+  }
+
+  [data-pricing-header] p {
+    margin-top: 1.5mm !important;
+    line-height: 1.35 !important;
+  }
+
+  [data-pricing-package-grid] {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 4mm !important;
+  }
+
+  [data-pricing-card] {
+    break-inside: avoid;
+    border-radius: 4mm !important;
+    padding: 4mm !important;
+    box-shadow: none !important;
+  }
+
+  [data-pricing-card] h3 {
+    margin-top: 2mm !important;
+    font-size: 18pt !important;
+  }
+
+  [data-pricing-card] h3 + p {
+    min-height: 0 !important;
+    margin-top: 1mm !important;
+    font-size: 8pt !important;
+    line-height: 1.35 !important;
+  }
+
+  [data-pricing-price] {
+    margin-top: 3mm !important;
+    padding-block: 3mm !important;
+  }
+
+  [data-pricing-price] > p:first-child {
+    font-size: 23pt !important;
+  }
+
+  [data-pricing-price] > p:not(:first-child) {
+    margin-top: 0 !important;
+    font-size: 7.5pt !important;
+  }
+
+  [data-pricing-onboarding] {
+    margin-top: 1mm !important;
+  }
+
+  [data-pricing-card] dl {
+    margin-top: 3mm !important;
+    gap: 2mm !important;
+  }
+
+  [data-pricing-card] dl > div {
+    border-radius: 2.5mm !important;
+    padding: 2mm !important;
+  }
+
+  [data-pricing-card] dl dd {
+    margin-top: 1mm !important;
+    font-size: 8pt !important;
+  }
+
+  [data-pricing-features] {
+    margin-top: 3mm !important;
+    gap: 1.2mm !important;
+    font-size: 8pt !important;
+    line-height: 1.35 !important;
+  }
+
+  [data-pricing-review] {
+    margin-top: 3mm !important;
+    border-radius: 2.5mm !important;
+    padding: 2mm 3mm !important;
+    font-size: 7.5pt !important;
+  }
+
+  [data-pricing-packages] {
+    break-after: page;
+  }
+
+  [data-pricing-comparison] {
+    break-before: page;
+    break-after: page;
+    margin-top: 0 !important;
+  }
+
+  [data-pricing-comparison] > div:first-child {
+    margin-bottom: 3mm !important;
+  }
+
+  [data-pricing-comparison] table {
+    min-width: 0 !important;
+    font-size: 9pt !important;
+  }
+
+  [data-pricing-comparison] th,
+  [data-pricing-comparison] td {
+    padding: 3.4mm 3mm !important;
+  }
+
+  [data-pricing-notes] {
+    break-before: page;
+    margin-top: 0 !important;
+    display: grid !important;
+    grid-template-columns: 1.1fr 0.9fr !important;
+    gap: 5mm !important;
+  }
+
+  [data-pricing-notes] > div {
+    break-inside: avoid;
+    border-radius: 4mm !important;
+    padding: 5mm !important;
+    box-shadow: none !important;
+  }
+
+  [data-pricing-notes] h2 {
+    font-size: 17pt !important;
+  }
+
+  [data-pricing-notes] h3 {
+    font-size: 9pt !important;
+  }
+
+  [data-pricing-notes] p,
+  [data-pricing-notes] li,
+  [data-pricing-notes] strong {
+    font-size: 7.5pt !important;
+    line-height: 1.35 !important;
+  }
+}

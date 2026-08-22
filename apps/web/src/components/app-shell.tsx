@@ -277,9 +277,9 @@ function ShellContent({ user, children }: { user: CurrentUser; children: ReactNo
   const contextSubtitle = selectedWorkspace?.name ?? (clientId ? "Tổng quan khách hàng" : "AI Product Marketing Studio");
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[280px_minmax(0,1fr)]">
+    <div data-studio-shell className="min-h-screen lg:grid lg:grid-cols-[280px_minmax(0,1fr)]">
       <a href="#main-content" className="skip-link">Bỏ qua điều hướng</a>
-      <header inert={navigationOpen ? true : undefined} aria-hidden={navigationOpen ? true : undefined} className="sticky top-0 z-30 flex min-h-16 items-center justify-between border-b border-[var(--line)] bg-[#edf0e7]/95 px-4 backdrop-blur lg:hidden">
+      <header data-studio-mobile-header inert={navigationOpen ? true : undefined} aria-hidden={navigationOpen ? true : undefined} className="sticky top-0 z-30 flex min-h-16 items-center justify-between border-b border-[var(--line)] bg-[#edf0e7]/95 px-4 backdrop-blur lg:hidden">
         <Link href={clientId ? studioRoutes.client(clientId) : studioRoutes.clients} className="flex min-w-0 items-center gap-3" aria-label="Về trang tổng quan">
           <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-[var(--ink)] text-[var(--lime)]"><Clapperboard className="size-5" /></span>
           <span className="min-w-0"><span className="block truncate text-sm font-bold text-[var(--ink)]">{contextTitle}</span><span className="block truncate text-xs text-[var(--muted)]">{contextSubtitle}</span></span>
@@ -288,6 +288,7 @@ function ShellContent({ user, children }: { user: CurrentUser; children: ReactNo
       </header>
       {navigationOpen ? <button type="button" tabIndex={-1} className="fixed inset-0 z-40 bg-[var(--ink)]/45 backdrop-blur-[1px] lg:hidden" aria-label="Đóng điều hướng" onClick={closeNavigation} /> : null}
       <aside
+        data-studio-navigation
         id="studio-navigation"
         ref={navigationRef}
         role={navigationOpen ? "dialog" : undefined}
@@ -329,8 +330,8 @@ function ShellContent({ user, children }: { user: CurrentUser; children: ReactNo
         </div>
         {logout.error ? <p role="alert" className="mt-2 text-xs font-semibold text-[var(--coral)]">{logout.error.message}</p> : null}
       </aside>
-      <main id="main-content" tabIndex={-1} inert={navigationOpen ? true : undefined} aria-hidden={navigationOpen ? true : undefined} className="min-w-0 overflow-x-hidden px-4 py-6 sm:px-5 md:px-8 lg:px-10 lg:py-9">
-        <div className="mx-auto w-full max-w-[1600px]">{children}</div>
+      <main data-studio-main id="main-content" tabIndex={-1} inert={navigationOpen ? true : undefined} aria-hidden={navigationOpen ? true : undefined} className="min-w-0 overflow-x-hidden px-4 py-6 sm:px-5 md:px-8 lg:px-10 lg:py-9">
+        <div data-studio-main-inner className="mx-auto w-full max-w-[1600px]">{children}</div>
       </main>
     </div>
   );

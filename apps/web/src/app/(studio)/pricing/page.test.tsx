@@ -16,10 +16,15 @@ describe("PricingPage", () => {
     expect(screen.getByText("5.290.000đ")).toBeInTheDocument();
     expect(screen.getByText("12.900.000đ")).toBeInTheDocument();
     expect(screen.getByText("24.900.000đ")).toBeInTheDocument();
+    expect(screen.getAllByText("Miễn phí")).toHaveLength(2);
+    expect(screen.getAllByText("2.950.000đ")).toHaveLength(2);
+    expect(screen.getAllByText("-50%")).toHaveLength(2);
+    expect(screen.getAllByText("7.900.000đ")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Xuất bảng giá thành PDF" })).toBeInTheDocument();
     expect(screen.getByText("8 video dọc hoàn chỉnh 30 giây đã qua duyệt")).toBeInTheDocument();
     expect(screen.getAllByText("Không bao gồm báo cáo định kỳ")).toHaveLength(2);
     expect(screen.getAllByText("Hỗ trợ thiết lập")).toHaveLength(4);
-    expect(document.querySelectorAll("s")).toHaveLength(8);
+    expect(document.querySelectorAll("s")).toHaveLength(12);
     expect(screen.getByRole("table", { name: "So sánh ba gói dịch vụ" })).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/PAUSED|Meta Ads|quota|provider|render|entitlement/i);
     expect(screen.queryByRole("button", { name: /đăng ký|thanh toán|mua gói/i })).not.toBeInTheDocument();
