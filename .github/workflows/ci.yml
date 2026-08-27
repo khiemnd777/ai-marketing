@@ -242,7 +242,7 @@ jobs:
           docker logs studio-renderer-e2e >/tmp/studio-renderer-e2e.log 2>&1 || true
       - name: Upload browser diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: browser-e2e-diagnostics
           path: |
