@@ -16,15 +16,15 @@
     "build": "tsc -p tsconfig.build.json"
   },
   "dependencies": {
-    "@remotion/captions": "4.0.513",
-    "@remotion/transitions": "4.0.513",
-    "react": "19.2.8",
-    "remotion": "4.0.513",
+    "@remotion/captions": "4.0.524",
+    "@remotion/transitions": "4.0.524",
+    "react": "19.3.0",
+    "remotion": "4.0.524",
     "zod": "^4.0.0"
   },
   "devDependencies": {
-    "@types/react": "^19.0.0",
-    "typescript": "^5.9.0",
-    "vitest": "^3.2.0"
+    "@types/react": "^19.3.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
   }
 }
