@@ -1,4 +1,4 @@
-FROM golang:1.26.7-bookworm AS build
+FROM golang:1.27.2-bookworm AS build
 WORKDIR /src/services/api
 COPY services/api/go.mod services/api/go.sum ./
 RUN go mod download
